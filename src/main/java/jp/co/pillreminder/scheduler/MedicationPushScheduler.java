@@ -1,6 +1,7 @@
 package jp.co.pillreminder.scheduler;
 
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -16,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+
 
 @Component
 public class MedicationPushScheduler {
@@ -55,9 +57,10 @@ public class MedicationPushScheduler {
     @Scheduled(cron = "0 * * * * *")
     public void pushReminders() {
         if (channelToken == null || channelToken.isBlank()) return;
-
-        LocalTime now = LocalTime.now();
+        LocalTime now = LocalTime.now(ZoneId.of("Asia/Tokyo"));
         String nowTimeStr = now.format(DateTimeFormatter.ofPattern("HH:mm"));
+
+        log.info("⏰ スケジューラー実行中 [日本時間: {}]", nowTimeStr);
 
         // 1. 定時リマインドの送信
         sendRegularReminders(nowTimeStr);
