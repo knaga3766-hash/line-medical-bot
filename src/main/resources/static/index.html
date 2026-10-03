@@ -74,9 +74,23 @@
       </div>
 
       <!-- 日付グリッド -->
-      <div id="calendar-grid" class="grid grid-cols-7 gap-1">
-        <!-- JSで描画 -->
-      </div>
+	        <div id="calendar-grid" class="grid grid-cols-7 gap-1">
+	          <!-- JSで描画 -->
+	        </div>
+
+	        <!-- ★ 追加：タップした日の服薬詳細カード -->
+	        <div id="selected-day-card" class="mt-4 pt-3.5 border-t border-slate-100 hidden">
+	          <div class="flex items-center justify-between mb-2.5">
+	            <h3 id="selected-day-title" class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+	              <span>📌</span> <span>10月3日の記録</span>
+	            </h3>
+	            <span id="selected-day-badge" class="text-[10px] font-bold px-2 py-0.5 rounded-full"></span>
+	          </div>
+	          <div id="selected-day-list" class="space-y-1.5">
+	            <!-- JSでここにその日の薬一覧が表示される -->
+	          </div>
+	        </div>
+	      </div>
     </div>
 
     <!-- お薬フォームカード（新規登録 ＆ 編集） -->
@@ -420,6 +434,162 @@
     }
 
     initLiff();
+	// 状態管理変数に「選択中の日付」と「履歴データ」を追加
+	    let selectedDateStr = null;
+	    let allHistoryData = [];
+
+	    // カレンダー描画（タップ可能 ＆ 選択中の枠線を付ける）
+	    function renderCalendar() {
+	      const year = calendarDate.getFullYear();
+	      const month = calendarDate.getMonth();
+	      document.getElementById("calendar-title").textContent = `${year}年 ${month + 1}月`;
+
+	      const grid = document.getElementById("calendar-grid");
+	      grid.innerHTML = "";
+
+	      const firstDay = new Date(year, month, 1).getDay();
+	      const lastDate = new Date(year, month + 1, 0).getDate();
+
+	      const today = new Date();
+	      const isThisMonth = (today.getFullYear() === year && today.getMonth() === month);
+	      const todayDate = today.getDate();
+
+	      // 月初の空白
+	      for (let i = 0; i < firstDay; i++) {
+	        grid.innerHTML += `<div class="h-10"></div>`;
+	      }
+
+	      // 日付セル
+	      for (let d = 1; d <= lastDate; d++) {
+	        const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+	        const isDone = intakeDateSet.has(dStr);
+	        const isToday = isThisMonth && (d === todayDate);
+	        const isSelected = (selectedDateStr === dStr);
+
+	        // 選択中なら濃い青枠、今日なら青枠、その他は通常枠
+	        let borderClass = "border border-slate-100";
+	        if (isSelected) {
+	          borderClass = "border-2 border-indigo-600 ring-2 ring-indigo-200 shadow-sm";
+	        } else if (isToday) {
+	          borderClass = "border-2 border-blue-400";
+	        }
+
+	        const bgClass = isDone ? "bg-emerald-50 text-emerald-900 font-bold" : "bg-slate-50/50 text-slate-600";
+
+	        grid.innerHTML += `
+	          <div onclick="selectDate('${dStr}', ${year}, ${month + 1}, ${d}, ${isDone})" 
+	               class="h-10 flex flex-col items-center justify-center rounded-xl text-xs relative cursor-pointer active:scale-95 transition ${borderClass} ${bgClass}">
+	            <span class="text-[11px] leading-none">${d}</span>
+	            ${isDone ? '<span class="text-[10px] leading-none text-red-500 mt-0.5">💮</span>' : ''}
+	          </div>
+	        `;
+	      }
+
+	      // 初回表示時：今日の日付を自動選択
+	      if (!selectedDateStr && isThisMonth) {
+	        const todayStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(todayDate).padStart(2, '0')}`;
+	        selectDate(todayStr, year, month + 1, todayDate, intakeDateSet.has(todayStr));
+	      }
+	    }
+
+	    // ★ 日付をタップした時の処理
+	    function selectDate(dStr, year, month, day, isDone) {
+	      selectedDateStr = dStr;
+	      
+	      const card = document.getElementById("selected-day-card");
+	      const title = document.getElementById("selected-day-title");
+	      const badge = document.getElementById("selected-day-badge");
+	      const list = document.getElementById("selected-day-list");
+
+	      card.classList.remove("hidden");
+	      title.innerHTML = `<span>📅</span> <span>${month}月${day}日の記録</span>`;
+
+	      if (isDone) {
+	        badge.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700";
+	        badge.textContent = "服薬完了 💮";
+	      } else {
+	        badge.className = "text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500";
+	        badge.textContent = "記録なし";
+	      }
+
+	      // その日の服薬履歴を抽出
+	      const dayLogs = allHistoryData.filter(item => {
+	        if (!item.taken_at_str) return false;
+	        // "2026-10-03" または "10/03" または "10-03" の部分一致で判定
+	        const mStr = String(month).padStart(2, '0');
+	        const dayStr = String(day).padStart(2, '0');
+	        return item.taken_at_str.includes(dStr) || 
+	               item.taken_at_str.includes(`${mStr}/${dayStr}`) ||
+	               item.taken_at_str.includes(`${month}/${day}`);
+	      });
+
+	      if (dayLogs.length > 0) {
+	        list.innerHTML = dayLogs.map(log => `
+	          <div class="flex items-center justify-between p-2.5 bg-emerald-50/70 rounded-xl border border-emerald-100 text-xs">
+	            <span class="font-bold text-emerald-900 flex items-center gap-1.5">
+	              <span>💊</span> ${log.name}
+	            </span>
+	            <span class="text-emerald-700 font-mono text-[11px]">${log.taken_at_str}</span>
+	          </div>
+	        `).join("");
+	      } else if (isDone) {
+	        list.innerHTML = `
+	          <p class="text-xs text-emerald-700 bg-emerald-50 p-2.5 rounded-xl border border-emerald-100">
+	            💮 この日の服薬記録があります（直近の記録は下の履歴を確認してね）
+	          </p>`;
+	      } else {
+	        list.innerHTML = `
+	          <p class="text-xs text-slate-400 text-center py-2 bg-slate-50 rounded-xl">
+	            この日の服薬記録はありません☕️
+	          </p>`;
+	      }
+
+	      // カレンダーの選択枠を再描画で更新
+	      renderCalendarHighlights();
+	    }
+
+	    // 枠線の再描画（グリッド全体を壊さず枠だけ更新）
+	    function renderCalendarHighlights() {
+	      // 再描画して選択枠を同期
+	      const year = calendarDate.getFullYear();
+	      const month = calendarDate.getMonth();
+	      const lastDate = new Date(year, month + 1, 0).getDate();
+	      for (let d = 1; d <= lastDate; d++) {
+	        // 必要に応じてrenderCalendar()を呼べばOK
+	      }
+	    }
+
+	    // loadHistory を更新して履歴データを保存するようにする
+	    async function loadHistory() {
+	      const histEl = document.getElementById("history-list");
+	      try {
+	        const res = await fetch(`/api/medications/history?lineUserId=${currentUserId}`);
+	        allHistoryData = await res.json(); // ★ 全体データとして保持！
+
+	        if (allHistoryData.length === 0) {
+	          histEl.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">まだ服薬の記録はありません</p>';
+	          return;
+	        }
+
+	        histEl.innerHTML = allHistoryData.map(item => `
+	          <div class="flex items-center justify-between p-3 bg-emerald-50/60 rounded-xl border border-emerald-100 text-xs">
+	            <span class="font-semibold text-emerald-900 flex items-center gap-1.5">
+	              <span>✅</span> ${item.name}
+	            </span>
+	            <span class="text-emerald-700 font-mono">${item.taken_at_str} 記録</span>
+	          </div>
+	        `).join("");
+
+	        // 履歴読み込み完了後、もしすでに選択中の日付があれば再描画
+	        if (selectedDateStr) {
+	          const [y, m, d] = selectedDateStr.split("-").map(Number);
+	          selectDate(selectedDateStr, y, m, d, intakeDateSet.has(selectedDateStr));
+	        }
+	      } catch (e) {
+	        histEl.innerHTML = '<p class="text-xs text-red-500 text-center py-4">履歴の取得に失敗しました</p>';
+	      }
+	    }
+	
   </script>
 </body>
 </html>
