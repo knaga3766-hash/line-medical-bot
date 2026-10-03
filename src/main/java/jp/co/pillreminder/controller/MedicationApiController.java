@@ -164,4 +164,25 @@ public class MedicationApiController {
         res.put("intakeDates", dates);
         return res;
     }
+    /**
+     * 手動で服薬ログを記録するAPI（過去日・押し忘れ救済）
+     */
+    @PostMapping("/manual-intake")
+    public ResponseEntity<?> recordManualIntake(@RequestBody Map<String, Object> body) {
+        try {
+            Integer medId = Integer.parseInt(body.get("medicationId").toString());
+            String takenAt = (String) body.get("takenAt"); // "YYYY-MM-DD HH:mm:ss" 形式
+
+            if (takenAt == null || takenAt.isBlank()) {
+                jdbc.update("INSERT INTO intake_logs (medication_id) VALUES (?)", medId);
+            } else {
+                jdbc.update("INSERT INTO intake_logs (medication_id, taken_at) VALUES (?, ?::timestamp)", medId, takenAt);
+            }
+
+            return ResponseEntity.ok(Map.of("success", true, "message", "記録を追加しました"));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+    
 }

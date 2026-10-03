@@ -524,6 +524,71 @@
         alert("削除エラーが発生しました");
       }
     }
+	// 手動記録フォームの開閉
+	    function toggleManualForm(show) {
+	      const container = document.getElementById("manual-form-container");
+	      const openBtn = document.getElementById("open-manual-btn");
+	      
+	      if (show) {
+	        // 登録中のお薬をセレクトボックスに詰める
+	        const select = document.getElementById("manual-med-select");
+	        if (currentMedications.length === 0) {
+	          alert("まずはお薬を登録してね！");
+	          return;
+	        }
+	        select.innerHTML = currentMedications.map(m => `
+	          <option value="${m.id}" data-time="${m.notify_time}">${m.name} (${m.dosage})</option>
+	        `).join("");
+
+	        // 初期時刻を最初のお薬の通知時刻に合わせる
+	        if (currentMedications[0].notify_time) {
+	          document.getElementById("manual-time").value = currentMedications[0].notify_time;
+	        }
+
+	        container.classList.remove("hidden");
+	        openBtn.classList.add("hidden");
+	      } else {
+	        container.classList.add("hidden");
+	        openBtn.classList.remove("hidden");
+	      }
+	    }
+
+	    // お薬が切り替わったら時刻の初期値も連動
+	    document.getElementById("manual-med-select")?.addEventListener("change", (e) => {
+	      const selectedOpt = e.target.selectedOptions[0];
+	      const time = selectedOpt?.getAttribute("data-time");
+	      if (time) document.getElementById("manual-time").value = time;
+	    });
+
+	    // 手動記録をサーバーへ送信
+	    async function submitManualIntake() {
+	      if (!selectedDateStr) return;
+	      const medId = document.getElementById("manual-med-select").value;
+	      const time = document.getElementById("manual-time").value || "08:00";
+	      const takenAt = `${selectedDateStr} ${time}:00`;
+
+	      try {
+	        const res = await fetch("/api/medications/manual-intake", {
+	          method: "POST",
+	          headers: { "Content-Type": "application/json" },
+	          body: JSON.stringify({
+	            lineUserId: currentUserId,
+	            medicationId: medId,
+	            takenAt: takenAt
+	          })
+	        });
+
+	        if (res.ok) {
+	          alert("服薬記録を追加したよ！💮");
+	          toggleManualForm(false);
+	          refreshAll(); // カレンダー・ストリーク・詳細を即座に最新化！
+	        } else {
+	          alert("記録の保存に失敗しました");
+	        }
+	      } catch (err) {
+	        alert("通信エラーが発生しました");
+	      }
+	    }
 
     initLiff();
   </script>
