@@ -77,7 +77,7 @@
     </div>
 
     <!-- お薬フォームカード（新規登録 ＆ 編集） -->
-    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+	<div id="form-card" class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
       <h2 id="form-title" class="text-sm font-bold text-slate-700 mb-4 flex items-center gap-1.5">
         <span>➕</span> <span>新しいお薬を登録</span>
       </h2>
@@ -326,14 +326,18 @@
 	      document.getElementById("submit-btn").textContent = "変更を保存する";
 	      document.getElementById("cancel-btn").classList.remove("hidden");
 
-	      // ★ フォームの位置へスクロール＆お薬名にフォーカス！
-	      const formEl = document.getElementById("med-form");
-	      if (formEl) {
-	        formEl.scrollIntoView({ behavior: "smooth", block: "center" });
+	      // ★ フォームカードの位置を正確に計算してピタッと移動！
+	      const formCard = document.getElementById("form-card");
+	      if (formCard) {
+	        const rect = formCard.getBoundingClientRect();
+	        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+	        const targetY = rect.top + scrollTop - 12; // 画面上部に少しだけ余白を持たせる
+
+	        window.scrollTo({
+	          top: targetY,
+	          behavior: "smooth"
+	        });
 	      }
-	      setTimeout(() => {
-	        document.getElementById("name").focus();
-	      }, 300);
 	    }
 
     function cancelEdit() {
