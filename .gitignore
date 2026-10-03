@@ -1,0 +1,6 @@
+/target/
+/.settings/org.eclipse.m2e.core.prefs
+.DS_Store
+*.log
+target/
+.DS_Store

@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>お薬マネージャー</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    input[type="time"] {
+      -webkit-appearance: none;
+      min-height: 42px;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen p-4 pb-16 font-sans">
+  <div class="max-w-md mx-auto space-y-5">
+
+    <!-- ヘッダー -->
+    <div class="text-center pt-2">
+      <h1 class="text-xl font-bold text-slate-800 tracking-tight">💊 お薬マネージャー</h1>
+      <p id="status-text" class="text-xs text-slate-500 mt-0.5">LINE認証中...</p>
+    </div>
+
+    <!-- ★ ストリーク ＆ モチベーション応援カード -->
+    <div class="bg-gradient-to-br from-indigo-500 to-blue-600 text-white p-5 rounded-2xl shadow-sm">
+      <div class="flex items-center justify-between">
+        <div>
+          <span class="text-xs font-medium text-blue-100">継続ストリーク</span>
+          <div class="flex items-baseline gap-1 mt-0.5">
+            <span class="text-3xl font-black tracking-tight" id="streak-count">0</span>
+            <span class="text-sm font-semibold text-blue-100">日連続！🔥</span>
+          </div>
+        </div>
+        <div class="text-right">
+          <span class="text-xs font-medium text-blue-100">今月の達成</span>
+          <div class="flex items-baseline justify-end gap-1 mt-0.5">
+            <span class="text-2xl font-black tracking-tight" id="monthly-count">0</span>
+            <span class="text-xs font-semibold text-blue-100">日 💮</span>
+          </div>
+        </div>
+      </div>
+      <div class="mt-3.5 pt-3 border-t border-white/15">
+        <p id="streak-message" class="text-xs font-medium text-blue-50 flex items-center gap-1.5">
+          <span>🌱</span> 読み込み中...
+        </p>
+      </div>
+    </div>
+
+    <!-- ★ 💮 はなまる月間カレンダーカード -->
+    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+          <span>🗓️</span> <span id="calendar-title">カレンダー</span>
+        </h2>
+        <div class="flex items-center gap-1">
+          <button onclick="prevMonth()" class="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 text-xs font-bold transition">◀</button>
+          <button onclick="nextMonth()" class="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 text-xs font-bold transition">▶</button>
+        </div>
+      </div>
+
+      <!-- 曜日ヘッダー -->
+      <div class="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-slate-400 mb-2">
+        <span class="text-red-400">日</span>
+        <span>月</span>
+        <span>火</span>
+        <span>水</span>
+        <span>木</span>
+        <span>金</span>
+        <span class="text-blue-400">土</span>
+      </div>
+
+      <!-- 日付グリッド -->
+      <div id="calendar-grid" class="grid grid-cols-7 gap-1">
+        <!-- JSで描画 -->
+      </div>
+    </div>
+
+    <!-- お薬フォームカード（新規登録 ＆ 編集） -->
+    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+      <h2 id="form-title" class="text-sm font-bold text-slate-700 mb-4 flex items-center gap-1.5">
+        <span>➕</span> <span>新しいお薬を登録</span>
+      </h2>
+      <form id="med-form" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">お薬の名前</label>
+          <input type="text" id="name" required placeholder="例: ビタミン剤、頭痛薬"
+            class="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">通知時刻</label>
+          <input type="time" id="notifyTime" required
+            class="w-full px-3 py-2 text-sm bg-slate-100 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">用量（任意）</label>
+          <input type="text" id="dosage" placeholder="例: 1包、2錠" value="1包"
+            class="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+
+        <div class="flex items-center gap-2 pt-1">
+          <input type="checkbox" id="showName" checked
+            class="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500">
+          <label for="showName" class="text-xs text-slate-600 select-none">通知メッセージにお薬の名前を含める</label>
+        </div>
+
+        <div class="flex gap-2 pt-1">
+          <button type="submit" id="submit-btn"
+            class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl text-sm transition shadow-sm disabled:opacity-50">
+            この内容で登録する
+          </button>
+          <button type="button" id="cancel-btn" onclick="cancelEdit()"
+            class="hidden px-4 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold py-3 rounded-xl text-sm transition">
+            キャンセル
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- 登録中のお薬一覧カード -->
+    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+      <h2 class="text-sm font-bold text-slate-700 mb-3 flex items-center gap-1.5">
+        <span>📋</span> 登録中のお薬一覧
+      </h2>
+      <div id="med-list" class="space-y-2">
+        <p class="text-xs text-slate-400 text-center py-4">読み込み中...</p>
+      </div>
+    </div>
+
+    <!-- 服薬履歴カード -->
+    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+      <h2 class="text-sm font-bold text-slate-700 mb-3 flex items-center justify-between">
+        <span class="flex items-center gap-1.5">
+          <span>📊</span> 最近の服薬履歴
+        </span>
+        <button onclick="refreshAll()" class="text-xs text-blue-600 hover:underline font-normal">
+          更新
+        </button>
+      </h2>
+      <div id="history-list" class="space-y-2">
+        <p class="text-xs text-slate-400 text-center py-4">読み込み中...</p>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const MY_LIFF_ID = "2011761175-lcQ9D2JG";
+
+    let currentUserId = null;
+    let editingMedId = null;
+    let currentMedications = [];
+    let calendarDate = new Date();
+    let intakeDateSet = new Set();
+
+    async function initLiff() {
+      const status = document.getElementById("status-text");
+      try {
+        await liff.init({ liffId: MY_LIFF_ID });
+        if (!liff.isLoggedIn()) {
+          liff.login();
+          return;
+        }
+        const profile = await liff.getProfile();
+        currentUserId = profile.userId;
+        status.textContent = `${profile.displayName} さんのアカウントと接続中`;
+        refreshAll();
+      } catch (err) {
+        status.textContent = "LIFF初期化エラー: " + err.message;
+        console.error(err);
+      }
+    }
+
+    function refreshAll() {
+      loadCalendarData();
+      loadMedications();
+      loadHistory();
+    }
+
+    // カレンダー＆ストリークデータ取得
+    async function loadCalendarData() {
+      try {
+        const res = await fetch(`/api/medications/calendar?lineUserId=${currentUserId}`);
+        const data = await res.json();
+
+        document.getElementById("streak-count").textContent = data.streak;
+        document.getElementById("monthly-count").textContent = data.monthlyTotalDays;
+
+        const msgEl = document.getElementById("streak-message");
+        if (data.todayDone) {
+          msgEl.innerHTML = "<span>💮</span> <span>今日の服薬完了！体を大事にしてて最高！👏</span>";
+        } else if (data.streak > 0) {
+          msgEl.innerHTML = "<span>🔥</span> <span>今日飲めたら連続記録が更新されるよ！応援してるよ💪</span>";
+        } else {
+          msgEl.innerHTML = "<span>🌱</span> <span>今日からまたマイペースにいこう！無理は禁物だよ☕️</span>";
+        }
+
+        intakeDateSet = new Set(data.intakeDates || []);
+        renderCalendar();
+      } catch (e) {
+        console.error("カレンダー取得失敗", e);
+      }
+    }
+
+    // カレンダー描画
+    function renderCalendar() {
+      const year = calendarDate.getFullYear();
+      const month = calendarDate.getMonth();
+      document.getElementById("calendar-title").textContent = `${year}年 ${month + 1}月`;
+
+      const grid = document.getElementById("calendar-grid");
+      grid.innerHTML = "";
+
+      const firstDay = new Date(year, month, 1).getDay();
+      const lastDate = new Date(year, month + 1, 0).getDate();
+
+      const today = new Date();
+      const isThisMonth = (today.getFullYear() === year && today.getMonth() === month);
+      const todayDate = today.getDate();
+
+      // 月初の空白
+      for (let i = 0; i < firstDay; i++) {
+        grid.innerHTML += `<div class="h-10"></div>`;
+      }
+
+      // 日付セル
+      for (let d = 1; d <= lastDate; d++) {
+        const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const isDone = intakeDateSet.has(dStr);
+        const isToday = isThisMonth && (d === todayDate);
+
+        const borderClass = isToday ? "border-2 border-blue-500 shadow-sm" : "border border-slate-100";
+        const bgClass = isDone ? "bg-emerald-50 text-emerald-900 font-bold" : "bg-slate-50/50 text-slate-600";
+
+        grid.innerHTML += `
+          <div class="h-10 flex flex-col items-center justify-center rounded-xl text-xs relative ${borderClass} ${bgClass}">
+            <span class="text-[11px] leading-none">${d}</span>
+            ${isDone ? '<span class="text-[10px] leading-none text-red-500 mt-0.5">💮</span>' : ''}
+          </div>
+        `;
+      }
+    }
+
+    function prevMonth() {
+      calendarDate.setMonth(calendarDate.getMonth() - 1);
+      renderCalendar();
+    }
+
+    function nextMonth() {
+      calendarDate.setMonth(calendarDate.getMonth() + 1);
+      renderCalendar();
+    }
+
+    async function loadMedications() {
+      const listEl = document.getElementById("med-list");
+      try {
+        const res = await fetch(`/api/medications?lineUserId=${currentUserId}`);
+        currentMedications = await res.json();
+        
+        if (currentMedications.length === 0) {
+          listEl.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">登録されたお薬はありません</p>';
+          return;
+        }
+
+        listEl.innerHTML = currentMedications.map(item => `
+          <div class="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-100">
+            <div>
+              <div class="flex items-center gap-2">
+                <p class="text-sm font-bold text-slate-800">${item.name}</p>
+                ${!item.show_name ? '<span class="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">名前非表示</span>' : ''}
+              </div>
+              <p class="text-xs text-slate-500 mt-0.5">⏰ ${item.notify_time} ・ ${item.dosage}</p>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button onclick="startEdit(${item.id})" class="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2.5 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50">
+                編集
+              </button>
+              <button onclick="deleteMed(${item.id})" class="text-xs text-red-500 hover:text-red-700 font-semibold px-2.5 py-1.5 rounded-lg border border-red-200 hover:bg-red-50">
+                削除
+              </button>
+            </div>
+          </div>
+        `).join("");
+      } catch (e) {
+        listEl.innerHTML = '<p class="text-xs text-red-500 text-center py-4">一覧の取得に失敗しました</p>';
+      }
+    }
+
+    async function loadHistory() {
+      const histEl = document.getElementById("history-list");
+      try {
+        const res = await fetch(`/api/medications/history?lineUserId=${currentUserId}`);
+        const data = await res.json();
+
+        if (data.length === 0) {
+          histEl.innerHTML = '<p class="text-xs text-slate-400 text-center py-4">まだ服薬の記録はありません</p>';
+          return;
+        }
+
+        histEl.innerHTML = data.map(item => `
+          <div class="flex items-center justify-between p-3 bg-emerald-50/60 rounded-xl border border-emerald-100 text-xs">
+            <span class="font-semibold text-emerald-900 flex items-center gap-1.5">
+              <span>✅</span> ${item.name}
+            </span>
+            <span class="text-emerald-700 font-mono">${item.taken_at_str} 記録</span>
+          </div>
+        `).join("");
+      } catch (e) {
+        histEl.innerHTML = '<p class="text-xs text-red-500 text-center py-4">履歴の取得に失敗しました</p>';
+      }
+    }
+
+    function startEdit(id) {
+      const med = currentMedications.find(m => m.id === id);
+      if (!med) return;
+
+      editingMedId = id;
+      document.getElementById("name").value = med.name;
+      document.getElementById("notifyTime").value = med.notify_time;
+      document.getElementById("dosage").value = med.dosage;
+      document.getElementById("showName").checked = (med.show_name !== false);
+
+      document.getElementById("form-title").innerHTML = "<span>✏️</span> <span>お薬の情報を編集</span>";
+      document.getElementById("submit-btn").textContent = "変更を保存する";
+      document.getElementById("cancel-btn").classList.remove("hidden");
+
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function cancelEdit() {
+      editingMedId = null;
+      document.getElementById("med-form").reset();
+      document.getElementById("dosage").value = "1包";
+      document.getElementById("showName").checked = true;
+      document.getElementById("form-title").innerHTML = "<span>➕</span> <span>新しいお薬を登録</span>";
+      document.getElementById("submit-btn").textContent = "この内容で登録する";
+      document.getElementById("cancel-btn").classList.add("hidden");
+    }
+
+    document.getElementById("med-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!currentUserId) return;
+
+      const btn = document.getElementById("submit-btn");
+      btn.disabled = true;
+
+      const payload = {
+        lineUserId: currentUserId,
+        name: document.getElementById("name").value,
+        notifyTime: document.getElementById("notifyTime").value,
+        dosage: document.getElementById("dosage").value || "1包",
+        showName: document.getElementById("showName").checked
+      };
+
+      try {
+        const url = editingMedId ? `/api/medications/${editingMedId}` : "/api/medications";
+        const method = editingMedId ? "PUT" : "POST";
+
+        const res = await fetch(url, {
+          method: method,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          alert(editingMedId ? "変更を保存したよ！" : "登録が完了したよ！");
+          cancelEdit();
+          loadMedications();
+        } else {
+          alert("保存に失敗しました");
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    async function deleteMed(id) {
+      if (!confirm("このお薬を削除してもいい？")) return;
+      try {
+        const res = await fetch(`/api/medications/${id}`, { method: "DELETE" });
+        if (res.ok) {
+          if (editingMedId === id) cancelEdit();
+          loadMedications();
+        } else {
+          alert("削除に失敗しました");
+        }
+      } catch (e) {
+        alert("削除エラーが発生しました");
+      }
+    }
+
+    initLiff();
+  </script>
+</body>
+</html>
