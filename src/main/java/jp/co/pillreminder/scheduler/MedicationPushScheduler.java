@@ -1,5 +1,6 @@
 package jp.co.pillreminder.scheduler;
 
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -17,7 +18,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
-
 
 @Component
 public class MedicationPushScheduler {
@@ -42,7 +42,7 @@ public class MedicationPushScheduler {
         "⏰ %s になったよ！お薬リマインド💊\n\n今回のお薬一覧（%d種類）だよ👇\n%s\n\nマイペースにいこう🙌\n飲み終わったら下のボタンで記録してね！"
     );
 
-    // ★ 追いLINE用テンプレート（罪悪感ゼロ・過集中全肯定メッセージ）
+    // 追いLINE用テンプレート（罪悪感ゼロ・過集中全肯定メッセージ）
     private static final List<String> SNOOZE_TEMPLATES = List.of(
         "ふぅ〜っと一息つこう☕️\n何か別のことに夢中になってたかな？集中できててナイス！✨\n\n今この通知に気づけただけでハナマル満点だよ💮\nもしお薬まだだったら、コップ1杯のお水と一緒に飲もう💊\n%s\n\n飲んだら下のボタンをポチッと教えてね！",
         "お疲れさま〜！マイペースにいこう🙌\n作業ややりたいこと、頑張っててえらい！\n\n今思い出せたらそれだけで大成功だよ✨\n無理のないタイミングで、お水と一緒にごくっと飲んで体を労わろう💊\n%s\n\n飲み終わったら下のボタンをタップしてね！",
@@ -54,6 +54,7 @@ public class MedicationPushScheduler {
         this.restClient = RestClient.builder().baseUrl("https://api.line.me").build();
     }
 
+    // 毎分実行：定時リマインド ＆ 追いLINE
     @Scheduled(cron = "0 * * * * *")
     public void pushReminders() {
         if (channelToken == null || channelToken.isBlank()) return;
@@ -66,11 +67,118 @@ public class MedicationPushScheduler {
         sendRegularReminders(nowTimeStr);
 
         // 2. 追いLINEの送信（30分前の通知で未服薬のお薬をチェック）
-        // テスト用（2分後に追いLINEが届く）:
-        //String snoozeTargetTimeStr = now.minusMinutes(2).format(DateTimeFormatter.ofPattern("HH:mm"));
-        // 本番用
         String snoozeTargetTimeStr = now.minusMinutes(30).format(DateTimeFormatter.ofPattern("HH:mm"));
         sendSnoozeReminders(snoozeTargetTimeStr);
+    }
+
+    /**
+     * ★ 新機能：毎週日曜の夜 21:00（日本時間）に週間レポートを配信！
+     * ※テストしたい時は cron = "0 * * * * *" にすると毎分届くよ！
+     */
+ // テスト用：次の00秒（1分以内）にすぐ届く！
+    @Scheduled(cron = "0 * * * * *", zone = "Asia/Tokyo")
+    public void pushWeeklyReport() {
+    //@Scheduled(cron = "0 0 21 * * SUN", zone = "Asia/Tokyo")
+    //public void pushWeeklyReport() {
+        if (channelToken == null || channelToken.isBlank()) return;
+        log.info("📊 週間服薬レポート配信バッチ開始");
+
+        ZoneId jst = ZoneId.of("Asia/Tokyo");
+        LocalDate today = LocalDate.now(jst);
+        LocalDate monday = today.minusDays(6); // 月曜日〜日曜日（7日間）
+
+        String startStr = monday.toString();
+        String endStr = today.toString();
+
+        // お薬が登録されているアクティブユーザー一覧を取得
+        String userSql = """
+            SELECT DISTINCT u.id, u.line_user_id
+            FROM users u
+            JOIN medications m ON m.user_id = u.id
+            WHERE m.is_active = true
+        """;
+        List<Map<String, Object>> users = jdbc.queryForList(userSql);
+
+        for (Map<String, Object> user : users) {
+            Integer userId = (Integer) user.get("id");
+            String lineUserId = (String) user.get("line_user_id");
+
+            // 直近7日間で服薬記録があるユニーク日数を集計
+            String countSql = """
+                SELECT COUNT(DISTINCT to_char(l.taken_at + INTERVAL '9 hour', 'YYYY-MM-DD'))
+                FROM intake_logs l
+                JOIN medications m ON l.medication_id = m.id
+                WHERE m.user_id = ?
+                  AND to_char(l.taken_at + INTERVAL '9 hour', 'YYYY-MM-DD') BETWEEN ? AND ?
+            """;
+            Integer takenDays = jdbc.queryForObject(countSql, Integer.class, userId, startStr, endStr);
+            if (takenDays == null) takenDays = 0;
+
+            sendWeeklyReportMessage(lineUserId, takenDays);
+        }
+    }
+
+    // 週間レポートメッセージの生成＆プッシュ送信
+    private void sendWeeklyReportMessage(String lineUserId, int takenDays) {
+        int percent = (int) Math.round((takenDays / 7.0) * 100);
+        String reportText;
+
+        if (takenDays == 7) {
+            reportText = """
+                📊【今週の服薬レポート】
+                今週の達成度: 7日 / 7日 (100%) 💮
+
+                🎉 パーフェクト達成！本当にえらすぎる！！👏
+                自分の体をしっかり大切にできてて最高だよ！
+                この調子で来週もマイペースにいこうね✨
+                """;
+        } else if (takenDays >= 5) {
+            reportText = String.format("""
+                📊【今週の服薬レポート】
+                今週の達成度: %d日 / 7日 (%d%%) ✨
+
+                ナイスキープ！しっかり飲めてて素晴らしいよ💪
+                体を大事にする習慣、バッチリついてるね！
+                来週もこの調子でマイペースにいこう🙌
+                """, takenDays, percent);
+        } else if (takenDays >= 1) {
+            reportText = String.format("""
+                📊【今週の服薬レポート】
+                今週の達成度: %d日 / 7日 (%d%%) 🌱
+
+                今週もお疲れさま！忙しい日もあったよね。
+                記録できた日があるだけでハナマル満点だよ💮
+                無理せずマイペースに、体を労わっていこうね☕️
+                """, takenDays, percent);
+        } else {
+            reportText = """
+                📊【今週の服薬レポート】
+                今週の達成度: 0日 / 7日 (0%) 🌱
+
+                今週もお疲れさま！バタバタと忙しかったかな？
+                来週からまたいつでも再開できるから大丈夫☕️
+                無理のないペースで、体を大切にしていこうね✨
+                """;
+        }
+
+        Map<String, Object> body = Map.of(
+            "to", lineUserId,
+            "messages", List.of(Map.of(
+                "type", "text",
+                "text", reportText.trim()
+            ))
+        );
+
+        try {
+            restClient.post().uri("/v2/bot/message/push")
+                .contentType(MediaType.APPLICATION_JSON)
+                .headers(h -> h.setBearerAuth(channelToken))
+                .body(body)
+                .retrieve().toBodilessEntity();
+            log.info("週間レポート送信成功: {} ({}日/7日)", lineUserId, takenDays);
+        } catch (Exception e) {
+            log.error("週間レポート送信失敗: {}", e.getMessage());
+        }
     }
 
     // --- 定時リマインド ---
@@ -95,7 +203,6 @@ public class MedicationPushScheduler {
 
     // --- 追いLINE（スヌーズ） ---
     private void sendSnoozeReminders(String targetTimeStr) {
-        // 対象時刻のお薬を取得
         String sql = """
             SELECT u.line_user_id, m.id, m.name, m.dosage, COALESCE(m.show_name, true) AS show_name
             FROM medications m
@@ -106,7 +213,6 @@ public class MedicationPushScheduler {
         List<Map<String, Object>> rows = jdbc.queryForList(sql, targetTimeStr);
         if (rows.isEmpty()) return;
 
-        // まだ飲んでいない（直近1時間以内に記録がない）お薬だけに絞り込む
         List<Map<String, Object>> unTakenRows = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             int medId = (Integer) row.get("id");
@@ -119,7 +225,6 @@ public class MedicationPushScheduler {
 
         if (unTakenRows.isEmpty()) return;
 
-        // ユーザーごとにグループ化して追いLINE送信
         Map<String, List<Map<String, Object>>> userMedsMap = unTakenRows.stream()
             .collect(Collectors.groupingBy(r -> (String) r.get("line_user_id")));
 
