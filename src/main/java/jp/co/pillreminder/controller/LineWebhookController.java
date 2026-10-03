@@ -58,11 +58,16 @@ public class LineWebhookController {
 
             if (replyToken == null) continue;
 
-            if ("postback".equals(type)) {
+            if ("follow".equals(type)) {
+                // 友だち追加イベント
+                handleFollow(replyToken, lineUserId);
+            } else if ("postback".equals(type)) {
+                // ボタンタップイベント
                 Map<String, Object> postback = (Map<String, Object>) event.get("postback");
                 String data = (String) postback.get("data");
                 handlePostback(replyToken, lineUserId, data);
             } else if ("message".equals(type)) {
+                // メッセージ送信イベント
                 Map<String, Object> message = (Map<String, Object>) event.get("message");
                 String text = (String) message.get("text");
                 if (text != null && text.contains("飲んだ")) {
@@ -73,11 +78,46 @@ public class LineWebhookController {
         return ResponseEntity.ok("OK");
     }
 
+    /**
+     * 友だち追加時の処理
+     */
+    private void handleFollow(String replyToken, String lineUserId) {
+        // すでに同意済みかチェック（ブロック解除などの再追加対策）
+        if (isUserAgreed(lineUserId)) {
+            reply(replyToken, "おかえりなさい！🎉\n引き続きお薬マネージャーをご利用いただけます。\n下のメニューからお薬の確認・登録ができますよ💊", null);
+            return;
+        }
+
+        // ユーザーが存在しなければ初期登録（未同意状態）
+        ensureUserExists(lineUserId);
+
+        // 同意を求めるメッセージとクイック返信ボタン
+        String welcomeText = """
+            友だち追加ありがとうございます！🎉
+            お薬マネージャーへようこそ💊
+
+            【要配慮個人情報の取り扱いについて】
+            当アプリでは、薬品名や服用時間などのデータを扱います。
+            これらの情報は服薬リマインド通知およびご本人の服薬管理のみに利用し、第三者への提供は一切行いません。
+
+            安心してご利用いただくため、下のボタンをタップして同意をお願いします👇
+            """.stripIndent();
+
+        List<Map<String, Object>> quickReplyItems = List.of(
+            createPostbackQuickReply("✅ 同意して利用開始", "action=agree_privacy", "同意して利用を開始します")
+        );
+
+        reply(replyToken, welcomeText, quickReplyItems);
+    }
+
     private void handlePostback(String replyToken, String lineUserId, String data) {
         Map<String, String> params = parseQueryString(data);
         String action = params.get("action");
 
-        if ("intake".equals(action) && params.containsKey("medId")) {
+        if ("agree_privacy".equals(action)) {
+            // ★ 同意ボタンが押された時の処理
+            handleAgreePrivacy(replyToken, lineUserId);
+        } else if ("intake".equals(action) && params.containsKey("medId")) {
             int medId = Integer.parseInt(params.get("medId"));
             String allIdsStr = params.get("allIds");
             processSingleIntake(replyToken, medId, allIdsStr);
@@ -109,16 +149,54 @@ public class LineWebhookController {
         }
     }
 
+    /**
+     * 同意処理（DB更新 ＆ 完了メッセージ送信）
+     */
+    private void handleAgreePrivacy(String replyToken, String lineUserId) {
+        ensureUserExists(lineUserId);
+
+        // 同意フラグを true に更新
+        String updateSql = "UPDATE users SET agreed_privacy = true, agreed_at = CURRENT_TIMESTAMP WHERE line_user_id = ?";
+        jdbc.update(updateSql, lineUserId);
+
+        String successText = """
+            ✅ ご同意ありがとうございます！
+            初期設定が完了しました🎉
+
+            下のメニューから、毎日飲むお薬をさっそく登録してみてね💊✨
+            あなたの毎日の健康をしっかりサポートするよ！💪
+            """.stripIndent();
+
+        reply(replyToken, successText, null);
+    }
+
+    private void ensureUserExists(String lineUserId) {
+        String upsertSql = """
+            INSERT INTO users (line_user_id, agreed_privacy)
+            VALUES (?, false)
+            ON CONFLICT (line_user_id) DO NOTHING
+        """;
+        jdbc.update(upsertSql, lineUserId);
+    }
+
+    private boolean isUserAgreed(String lineUserId) {
+        try {
+            String sql = "SELECT agreed_privacy FROM users WHERE line_user_id = ?";
+            Boolean agreed = jdbc.queryForObject(sql, Boolean.class, lineUserId);
+            return Boolean.TRUE.equals(agreed);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private void processSingleIntake(String replyToken, int medId, String allIdsStr) {
         String displayName = getDisplayName(medId);
 
-        // 服薬記録の保存または二重判定
         boolean isDuplicate = isTakenRecently(medId);
         if (!isDuplicate) {
             jdbc.update("INSERT INTO intake_logs (medication_id) VALUES (?)", medId);
         }
 
-        // 基本返信テキスト
         String baseText;
         if (isDuplicate) {
             int idx = ThreadLocalRandom.current().nextInt(WARNING_MESSAGES.size());
@@ -128,7 +206,6 @@ public class LineWebhookController {
             baseText = String.format(SUCCESS_MESSAGES.get(idx), displayName);
         }
 
-        // 今回のリストから、今飲んだ medId を除外して残りを算出
         List<String> remainIdList = new ArrayList<>();
         if (allIdsStr != null && !allIdsStr.isBlank()) {
             for (String id : allIdsStr.split(",")) {
@@ -138,7 +215,6 @@ public class LineWebhookController {
             }
         }
 
-        // まだ残りの薬がある場合：残りのボタンを付けて返信
         if (!remainIdList.isEmpty()) {
             String newAllIdsStr = String.join(",", remainIdList);
             List<Map<String, Object>> quickReplyItems = new ArrayList<>();
@@ -165,7 +241,6 @@ public class LineWebhookController {
             String remainNotice = "\n\n📌 まだ「" + String.join("・", remainingDisplayNames) + "」が残っているよ！\n飲んだら下のボタンをタップしてね💊";
             reply(replyToken, baseText + remainNotice, quickReplyItems);
         } else {
-            // すべて飲み切った場合
             if (allIdsStr != null && allIdsStr.contains(",")) {
                 String allDoneNotice = "\n\n🎉 これでこの時間のお薬はすべて完了！パーフェクト！✨";
                 reply(replyToken, baseText + allDoneNotice, null);
@@ -190,7 +265,6 @@ public class LineWebhookController {
         processSingleIntake(replyToken, medIds.get(0), null);
     }
 
-    // 表示名の判定（show_name が false の場合は常に「お薬」とする）
     private String getDisplayName(int medId) {
         try {
             Map<String, Object> map = jdbc.queryForMap(

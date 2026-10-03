@@ -312,22 +312,29 @@
       }
     }
 
-    function startEdit(id) {
-      const med = currentMedications.find(m => m.id === id);
-      if (!med) return;
+	function startEdit(id) {
+	      const med = currentMedications.find(m => m.id === id);
+	      if (!med) return;
 
-      editingMedId = id;
-      document.getElementById("name").value = med.name;
-      document.getElementById("notifyTime").value = med.notify_time;
-      document.getElementById("dosage").value = med.dosage;
-      document.getElementById("showName").checked = (med.show_name !== false);
+	      editingMedId = id;
+	      document.getElementById("name").value = med.name;
+	      document.getElementById("notifyTime").value = med.notify_time;
+	      document.getElementById("dosage").value = med.dosage;
+	      document.getElementById("showName").checked = (med.show_name !== false);
 
-      document.getElementById("form-title").innerHTML = "<span>✏️</span> <span>お薬の情報を編集</span>";
-      document.getElementById("submit-btn").textContent = "変更を保存する";
-      document.getElementById("cancel-btn").classList.remove("hidden");
+	      document.getElementById("form-title").innerHTML = "<span>✏️</span> <span>お薬の情報を編集</span>";
+	      document.getElementById("submit-btn").textContent = "変更を保存する";
+	      document.getElementById("cancel-btn").classList.remove("hidden");
 
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+	      // ★ フォームの位置へスクロール＆お薬名にフォーカス！
+	      const formEl = document.getElementById("med-form");
+	      if (formEl) {
+	        formEl.scrollIntoView({ behavior: "smooth", block: "center" });
+	      }
+	      setTimeout(() => {
+	        document.getElementById("name").focus();
+	      }, 300);
+	    }
 
     function cancelEdit() {
       editingMedId = null;
