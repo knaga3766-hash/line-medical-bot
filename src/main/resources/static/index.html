@@ -256,18 +256,37 @@
       }
 
       // 日付セル
-      for (let d = 1; d <= lastDate; d++) {
-        const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const isDone = intakeDateSet.has(dStr);
-        const isToday = isThisMonth && (d === todayDate);
-        const isSelected = (selectedDateStr === dStr);
+	  // 日付セル
+	        for (let d = 1; d <= lastDate; d++) {
+	          const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+	          const isDone = intakeDateSet.has(dStr);
+	          const isToday = isThisMonth && (d === todayDate);
+	          const isSelected = (selectedDateStr === dStr);
 
-        let borderClass = "border border-slate-100";
-        if (isSelected) {
-          borderClass = "border-2 border-indigo-600 ring-2 ring-indigo-200 shadow-sm";
-        } else if (isToday) {
-          borderClass = "border-2 border-blue-400";
-        }
+	          // ★ スタイル設定の改善
+	          let borderClass = "border border-slate-100";
+	          let bgClass = isDone ? "bg-emerald-50 text-emerald-900 font-bold" : "bg-slate-50/50 text-slate-600";
+	          let transformClass = "";
+
+	          if (isSelected) {
+	            // 選択中の日：アクセント背景 ＋ 濃い枠線 ＋ ちょい拡大 ＋ 影
+	            bgClass = isDone ? "bg-emerald-100 text-emerald-950 font-black" : "bg-indigo-50 text-indigo-900 font-black";
+	            borderClass = "border-2 border-indigo-600 ring-2 ring-indigo-200 shadow-md";
+	            transformClass = "scale-105 z-10"; // 前面に少し浮き上がらせる
+	          } else if (isToday) {
+	            // 今日（選択されていない時）：すっきりした青枠
+	            borderClass = "border-2 border-blue-400";
+	          }
+
+	          grid.innerHTML += `
+	            <div onclick="selectDate('${dStr}', ${year}, ${month + 1}, ${d}, ${isDone})" 
+	                 class="h-10 flex flex-col items-center justify-center rounded-xl text-xs relative cursor-pointer active:scale-95 transition-all duration-150 ${borderClass} ${bgClass} ${transformClass}">
+	              <span class="text-[11px] leading-none">${d}</span>
+	              ${isDone ? '<span class="text-[10px] leading-none text-red-500 mt-0.5">💮</span>' : ''}
+	              ${isToday && !isSelected ? '<span class="absolute top-1 right-1 w-1.5 h-1.5 bg-blue-500 rounded-full"></span>' : ''}
+	            </div>
+	          `;
+	        }
 
         const bgClass = isDone ? "bg-emerald-50 text-emerald-900 font-bold" : "bg-slate-50/50 text-slate-600";
 
