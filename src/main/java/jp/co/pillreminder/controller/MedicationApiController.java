@@ -98,7 +98,7 @@ public class MedicationApiController {
         return ResponseEntity.ok("削除成功");
     }
 
-    // 5. 服薬履歴の取得（日本時間 +9時間 & 名前非表示）
+    // 5. 服薬履歴の取得（日本時間 +9時間 & 名前非表示）（LIMIT 100 に変更して過去の記録もカバー）
     @GetMapping("/history")
     public List<Map<String, Object>> getHistory(@RequestParam("lineUserId") String lineUserId) {
         String sql = """
@@ -110,9 +110,22 @@ public class MedicationApiController {
             JOIN users u ON m.user_id = u.id
             WHERE u.line_user_id = ?
             ORDER BY l.taken_at DESC
-            LIMIT 10
+            LIMIT 100
         """;
         return jdbc.queryForList(sql, lineUserId);
+    }
+
+    /**
+     * ★ 新規追加：服薬ログの削除API
+     */
+    @DeleteMapping("/history/{id}")
+    public ResponseEntity<?> deleteHistory(@PathVariable("id") Long id) {
+        try {
+            jdbc.update("DELETE FROM intake_logs WHERE id = ?", id);
+            return ResponseEntity.ok(Map.of("success", true, "message", "削除しました"));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
     }
 
     // 6. カレンダー＆ストリーク集計の取得（★新機能！）
@@ -176,7 +189,8 @@ public class MedicationApiController {
             if (takenAt == null || takenAt.isBlank()) {
                 jdbc.update("INSERT INTO intake_logs (medication_id) VALUES (?)", medId);
             } else {
-                jdbc.update("INSERT INTO intake_logs (medication_id, taken_at) VALUES (?, ?::timestamp)", medId, takenAt);
+                // ★ 修正：入力された日本時間から9時間引いてUTCとして保存！
+                jdbc.update("INSERT INTO intake_logs (medication_id, taken_at) VALUES (?, ?::timestamp - INTERVAL '9 hour')", medId, takenAt);
             }
 
             return ResponseEntity.ok(Map.of("success", true, "message", "記録を追加しました"));
