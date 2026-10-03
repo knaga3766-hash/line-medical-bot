@@ -75,11 +75,8 @@ public class MedicationPushScheduler {
      * ★ 新機能：毎週日曜の夜 21:00（日本時間）に週間レポートを配信！
      * ※テストしたい時は cron = "0 * * * * *" にすると毎分届くよ！
      */
- // テスト用：次の00秒（1分以内）にすぐ届く！
-    @Scheduled(cron = "0 * * * * *", zone = "Asia/Tokyo")
+    @Scheduled(cron = "0 0 21 * * SUN", zone = "Asia/Tokyo")
     public void pushWeeklyReport() {
-    //@Scheduled(cron = "0 0 21 * * SUN", zone = "Asia/Tokyo")
-    //public void pushWeeklyReport() {
         if (channelToken == null || channelToken.isBlank()) return;
         log.info("📊 週間服薬レポート配信バッチ開始");
 
