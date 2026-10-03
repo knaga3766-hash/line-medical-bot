@@ -70,8 +70,19 @@ public class LineWebhookController {
                 // メッセージ送信イベント
                 Map<String, Object> message = (Map<String, Object>) event.get("message");
                 String text = (String) message.get("text");
-                if (text != null && text.contains("飲んだ")) {
-                    handleTextIntake(replyToken, lineUserId);
+                if (text != null) {
+                    if (text.contains("飲んだ")) {
+                        handleTextIntake(replyToken, lineUserId);
+                    } else if (text.contains("問い合わせ") || text.contains("問合せ") || text.contains("不具合") || text.contains("ヘルプ")) {
+                        // ★ お問い合わせフォームを自動案内！
+                        String helpText = """
+                            お問い合わせや不具合のご報告は、以下のフォームより受け付けているよ！👇
+                            https://docs.google.com/forms/d/e/1FAIpQLSdK9DkdI7yteceVM5WN17lElmjhEytinXLqryLQujZPrrvF0Q/viewform
+                            
+                            ※お薬の飲み合わせ等の医療相談にはお答えできないのでご注意ください💊
+                            """.stripIndent();
+                        reply(replyToken, helpText, null);
+                    }
                 }
             }
         }
@@ -93,7 +104,7 @@ public class LineWebhookController {
 
         // 同意を求めるメッセージとクイック返信ボタン
         String welcomeText = """
-        	【要配慮個人情報の取り扱いについて】
+            【要配慮個人情報の取り扱いについて】
             当アプリでは、薬品名や服用時間などのデータを扱います。
             これらの情報は服薬リマインド通知およびご本人の服薬管理のみに利用し、第三者への提供は一切行いません。
 
@@ -162,6 +173,11 @@ public class LineWebhookController {
 
             下のメニューから、毎日飲むお薬をさっそく登録してみてね💊✨
             あなたの毎日の健康をしっかりサポートするよ！💪
+
+            ━━━━━━━━━━━━━━
+            💡 画面下にメニューが出ない場合：
+            一度トーク一覧に戻って開き直すか、下のリンクから直接お薬マネージャーを開いてね👇
+            https://liff.line.me/2011761175-lcQ9D2JG
             """.stripIndent();
 
         reply(replyToken, successText, null);
