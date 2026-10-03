@@ -78,7 +78,7 @@
         <!-- JSで描画 -->
       </div>
 
-      <!-- タップした日の服薬詳細カード -->
+      <!-- タップした日の服薬詳細カード ＆ 手動記録エリア -->
       <div id="selected-day-card" class="mt-4 pt-3.5 border-t border-slate-100 hidden">
         <div class="flex items-center justify-between mb-2.5">
           <h3 id="selected-day-title" class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
@@ -86,8 +86,36 @@
           </h3>
           <span id="selected-day-badge" class="text-[10px] font-bold px-2 py-0.5 rounded-full"></span>
         </div>
+
         <div id="selected-day-list" class="space-y-1.5">
           <!-- JSでここにその日の薬一覧が表示される -->
+        </div>
+
+        <!-- ★ 手動記録フォームエリア -->
+        <div class="mt-3 pt-2.5 border-t border-slate-100">
+          <button type="button" id="open-manual-btn" onclick="toggleManualForm(true)"
+            class="w-full py-2 px-3 text-xs font-semibold text-blue-600 bg-blue-50/70 hover:bg-blue-100/70 rounded-xl transition flex items-center justify-center gap-1.5">
+            <span>➕</span> <span>この日の記録をつける</span>
+          </button>
+
+          <div id="manual-form-container" class="hidden mt-2 p-3 bg-slate-50 rounded-xl space-y-2.5 border border-slate-100">
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-500 mb-1">飲んだお薬</label>
+              <select id="manual-med-select" class="w-full px-2.5 py-2 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"></select>
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-500 mb-1">飲んだ時間</label>
+              <input type="time" id="manual-time" value="08:00" class="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="flex gap-2 pt-1">
+              <button type="button" onclick="submitManualIntake()" class="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs rounded-lg transition shadow-sm">
+                記録を保存
+              </button>
+              <button type="button" onclick="toggleManualForm(false)" class="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-600 font-semibold text-xs rounded-lg transition">
+                閉じる
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -234,7 +262,7 @@
       }
     }
 
-    // カレンダー描画
+    // カレンダー描画（案①：ポコッと浮き出るハイライト！）
     function renderCalendar() {
       const year = calendarDate.getFullYear();
       const month = calendarDate.getMonth();
@@ -256,45 +284,30 @@
       }
 
       // 日付セル
-	  // 日付セル
-	        for (let d = 1; d <= lastDate; d++) {
-	          const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-	          const isDone = intakeDateSet.has(dStr);
-	          const isToday = isThisMonth && (d === todayDate);
-	          const isSelected = (selectedDateStr === dStr);
+      for (let d = 1; d <= lastDate; d++) {
+        const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const isDone = intakeDateSet.has(dStr);
+        const isToday = isThisMonth && (d === todayDate);
+        const isSelected = (selectedDateStr === dStr);
 
-	          // ★ スタイル設定の改善
-	          let borderClass = "border border-slate-100";
-	          let bgClass = isDone ? "bg-emerald-50 text-emerald-900 font-bold" : "bg-slate-50/50 text-slate-600";
-	          let transformClass = "";
+        let borderClass = "border border-slate-100";
+        let bgClass = isDone ? "bg-emerald-50 text-emerald-900 font-bold" : "bg-slate-50/50 text-slate-600";
+        let transformClass = "";
 
-	          if (isSelected) {
-	            // 選択中の日：アクセント背景 ＋ 濃い枠線 ＋ ちょい拡大 ＋ 影
-	            bgClass = isDone ? "bg-emerald-100 text-emerald-950 font-black" : "bg-indigo-50 text-indigo-900 font-black";
-	            borderClass = "border-2 border-indigo-600 ring-2 ring-indigo-200 shadow-md";
-	            transformClass = "scale-105 z-10"; // 前面に少し浮き上がらせる
-	          } else if (isToday) {
-	            // 今日（選択されていない時）：すっきりした青枠
-	            borderClass = "border-2 border-blue-400";
-	          }
-
-	          grid.innerHTML += `
-	            <div onclick="selectDate('${dStr}', ${year}, ${month + 1}, ${d}, ${isDone})" 
-	                 class="h-10 flex flex-col items-center justify-center rounded-xl text-xs relative cursor-pointer active:scale-95 transition-all duration-150 ${borderClass} ${bgClass} ${transformClass}">
-	              <span class="text-[11px] leading-none">${d}</span>
-	              ${isDone ? '<span class="text-[10px] leading-none text-red-500 mt-0.5">💮</span>' : ''}
-	              ${isToday && !isSelected ? '<span class="absolute top-1 right-1 w-1.5 h-1.5 bg-blue-500 rounded-full"></span>' : ''}
-	            </div>
-	          `;
-	        }
-
-        const bgClass = isDone ? "bg-emerald-50 text-emerald-900 font-bold" : "bg-slate-50/50 text-slate-600";
+        if (isSelected) {
+          bgClass = isDone ? "bg-emerald-100 text-emerald-950 font-black" : "bg-indigo-50 text-indigo-900 font-black";
+          borderClass = "border-2 border-indigo-600 ring-2 ring-indigo-200 shadow-md";
+          transformClass = "scale-105 z-10";
+        } else if (isToday) {
+          borderClass = "border-2 border-blue-400";
+        }
 
         grid.innerHTML += `
           <div onclick="selectDate('${dStr}', ${year}, ${month + 1}, ${d}, ${isDone})" 
-               class="h-10 flex flex-col items-center justify-center rounded-xl text-xs relative cursor-pointer active:scale-95 transition ${borderClass} ${bgClass}">
+               class="h-10 flex flex-col items-center justify-center rounded-xl text-xs relative cursor-pointer active:scale-95 transition-all duration-150 ${borderClass} ${bgClass} ${transformClass}">
             <span class="text-[11px] leading-none">${d}</span>
             ${isDone ? '<span class="text-[10px] leading-none text-red-500 mt-0.5">💮</span>' : ''}
+            ${isToday && !isSelected ? '<span class="absolute top-1 right-1 w-1.5 h-1.5 bg-blue-500 rounded-full"></span>' : ''}
           </div>
         `;
       }
@@ -366,8 +379,70 @@
           </p>`;
       }
 
-      // カレンダーの日付枠線を選択状態に同期
       renderCalendar();
+    }
+
+    // 手動記録フォームの開閉
+    function toggleManualForm(show) {
+      const container = document.getElementById("manual-form-container");
+      const openBtn = document.getElementById("open-manual-btn");
+      
+      if (show) {
+        const select = document.getElementById("manual-med-select");
+        if (currentMedications.length === 0) {
+          alert("まずはお薬を登録してね！");
+          return;
+        }
+        select.innerHTML = currentMedications.map(m => `
+          <option value="${m.id}" data-time="${m.notify_time}">${m.name} (${m.dosage})</option>
+        `).join("");
+
+        if (currentMedications[0].notify_time) {
+          document.getElementById("manual-time").value = currentMedications[0].notify_time;
+        }
+
+        container.classList.remove("hidden");
+        openBtn.classList.add("hidden");
+      } else {
+        container.classList.add("hidden");
+        openBtn.classList.remove("hidden");
+      }
+    }
+
+    document.getElementById("manual-med-select")?.addEventListener("change", (e) => {
+      const selectedOpt = e.target.selectedOptions[0];
+      const time = selectedOpt?.getAttribute("data-time");
+      if (time) document.getElementById("manual-time").value = time;
+    });
+
+    // 手動記録を送信
+    async function submitManualIntake() {
+      if (!selectedDateStr) return;
+      const medId = document.getElementById("manual-med-select").value;
+      const time = document.getElementById("manual-time").value || "08:00";
+      const takenAt = `${selectedDateStr} ${time}:00`;
+
+      try {
+        const res = await fetch("/api/medications/manual-intake", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lineUserId: currentUserId,
+            medicationId: medId,
+            takenAt: takenAt
+          })
+        });
+
+        if (res.ok) {
+          alert("服薬記録を追加したよ！💮");
+          toggleManualForm(false);
+          refreshAll();
+        } else {
+          alert("記録の保存に失敗しました");
+        }
+      } catch (err) {
+        alert("通信エラーが発生しました");
+      }
     }
 
     async function loadMedications() {
@@ -524,71 +599,6 @@
         alert("削除エラーが発生しました");
       }
     }
-	// 手動記録フォームの開閉
-	    function toggleManualForm(show) {
-	      const container = document.getElementById("manual-form-container");
-	      const openBtn = document.getElementById("open-manual-btn");
-	      
-	      if (show) {
-	        // 登録中のお薬をセレクトボックスに詰める
-	        const select = document.getElementById("manual-med-select");
-	        if (currentMedications.length === 0) {
-	          alert("まずはお薬を登録してね！");
-	          return;
-	        }
-	        select.innerHTML = currentMedications.map(m => `
-	          <option value="${m.id}" data-time="${m.notify_time}">${m.name} (${m.dosage})</option>
-	        `).join("");
-
-	        // 初期時刻を最初のお薬の通知時刻に合わせる
-	        if (currentMedications[0].notify_time) {
-	          document.getElementById("manual-time").value = currentMedications[0].notify_time;
-	        }
-
-	        container.classList.remove("hidden");
-	        openBtn.classList.add("hidden");
-	      } else {
-	        container.classList.add("hidden");
-	        openBtn.classList.remove("hidden");
-	      }
-	    }
-
-	    // お薬が切り替わったら時刻の初期値も連動
-	    document.getElementById("manual-med-select")?.addEventListener("change", (e) => {
-	      const selectedOpt = e.target.selectedOptions[0];
-	      const time = selectedOpt?.getAttribute("data-time");
-	      if (time) document.getElementById("manual-time").value = time;
-	    });
-
-	    // 手動記録をサーバーへ送信
-	    async function submitManualIntake() {
-	      if (!selectedDateStr) return;
-	      const medId = document.getElementById("manual-med-select").value;
-	      const time = document.getElementById("manual-time").value || "08:00";
-	      const takenAt = `${selectedDateStr} ${time}:00`;
-
-	      try {
-	        const res = await fetch("/api/medications/manual-intake", {
-	          method: "POST",
-	          headers: { "Content-Type": "application/json" },
-	          body: JSON.stringify({
-	            lineUserId: currentUserId,
-	            medicationId: medId,
-	            takenAt: takenAt
-	          })
-	        });
-
-	        if (res.ok) {
-	          alert("服薬記録を追加したよ！💮");
-	          toggleManualForm(false);
-	          refreshAll(); // カレンダー・ストリーク・詳細を即座に最新化！
-	        } else {
-	          alert("記録の保存に失敗しました");
-	        }
-	      } catch (err) {
-	        alert("通信エラーが発生しました");
-	      }
-	    }
 
     initLiff();
   </script>
