@@ -36,7 +36,7 @@ public class LineWebhookController {
     );
 
     private static final List<String> WARNING_MESSAGES = List.of(
-        "⚠️ あれ？「%s」はさっき（2時間以内）も飲んだ記録があるよ！\n飲み過ぎてないか確認してね！無理は禁物だよ☕️",
+        "⚠️️ あれ？「%s」はさっき（2時間以内）も飲んだ記録があるよ！\n飲み過ぎてないか確認してね！無理は禁物だよ☕️",
         "⚠️ ちょっと待った〜！「%s」はさっき飲んだ記録がまだ残ってるよ！\n飲み重ねに気をつけてね💊"
     );
 
@@ -46,39 +46,44 @@ public class LineWebhookController {
     }
 
     @PostMapping
-    public ResponseEntity<String> handleWebhook(@RequestBody Map<String, Object> payload) {
-        List<Map<String, Object>> events = (List<Map<String, Object>>) payload.get("events");
-        if (events == null || events.isEmpty()) return ResponseEntity.ok("OK");
+    public ResponseEntity<String> handleWebhook(@RequestBody Map<String, Object> body) {
+        List<Map<String, Object>> events = (List<Map<String, Object>>) body.get("events");
+        if (events == null || events.isEmpty()) {
+            return ResponseEntity.ok("OK");
+        }
 
         for (Map<String, Object> event : events) {
             String type = (String) event.get("type");
             String replyToken = (String) event.get("replyToken");
             Map<String, Object> source = (Map<String, Object>) event.get("source");
-            String lineUserId = (String) source.get("userId");
+            String lineUserId = source != null ? (String) source.get("userId") : null;
 
-            if (replyToken == null) continue;
+            if (replyToken == null || lineUserId == null) {
+                continue;
+            }
 
             if ("follow".equals(type)) {
-                // 友だち追加イベント
                 handleFollow(replyToken, lineUserId);
             } else if ("postback".equals(type)) {
-                // ボタンタップイベント
                 Map<String, Object> postback = (Map<String, Object>) event.get("postback");
-                String data = (String) postback.get("data");
-                handlePostback(replyToken, lineUserId, data);
+                if (postback != null) {
+                    handlePostback(replyToken, lineUserId, (String) postback.get("data"));
+                }
             } else if ("message".equals(type)) {
-                // メッセージ送信イベント
                 Map<String, Object> message = (Map<String, Object>) event.get("message");
                 String text = (String) message.get("text");
                 if (text != null) {
-                    if (text.contains("飲んだ")) {
-                        handleTextIntake(replyToken, lineUserId);
+                    if (text.contains("残数") || text.contains("残り") || text.contains("在庫")) {
+                        // ★ 残数確認コマンド
+                        handleStockInquiry(replyToken, lineUserId);
+                    } else if (text.contains("飲んだ")) {
+                        // ★ 服薬記録
+                        handleTextIntake(replyToken, lineUserId, text);
                     } else if (text.contains("問い合わせ") || text.contains("問合せ") || text.contains("不具合") || text.contains("ヘルプ")) {
-                        // ★ お問い合わせフォームを自動案内！
                         String helpText = """
                             お問い合わせや不具合のご報告は、以下のフォームより受け付けているよ！👇
                             https://docs.google.com/forms/d/e/1FAIpQLSdK9DkdI7yteceVM5WN17lElmjhEytinXLqryLQujZPrrvF0Q/viewform
-                            
+
                             ※お薬の飲み合わせ等の医療相談にはお答えできないのでご注意ください💊
                             """.stripIndent();
                         reply(replyToken, helpText, null);
@@ -89,20 +94,14 @@ public class LineWebhookController {
         return ResponseEntity.ok("OK");
     }
 
-    /**
-     * 友だち追加時の処理
-     */
     private void handleFollow(String replyToken, String lineUserId) {
-        // すでに同意済みかチェック（ブロック解除などの再追加対策）
         if (isUserAgreed(lineUserId)) {
             reply(replyToken, "おかえりなさい！🎉\n引き続きお薬マネージャーをご利用いただけます。\n下のメニューからお薬の確認・登録ができますよ💊", null);
             return;
         }
 
-        // ユーザーが存在しなければ初期登録（未同意状態）
         ensureUserExists(lineUserId);
 
-        // 同意を求めるメッセージとクイック返信ボタン
         String welcomeText = """
             【要配慮個人情報の取り扱いについて】
             当アプリでは、薬品名や服用時間などのデータを扱います。
@@ -123,7 +122,6 @@ public class LineWebhookController {
         String action = params.get("action");
 
         if ("agree_privacy".equals(action)) {
-            // ★ 同意ボタンが押された時の処理
             handleAgreePrivacy(replyToken, lineUserId);
         } else if ("intake".equals(action) && params.containsKey("medId")) {
             int medId = Integer.parseInt(params.get("medId"));
@@ -133,6 +131,7 @@ public class LineWebhookController {
             String[] ids = params.get("medIds").split(",");
             List<String> recordedNames = new ArrayList<>();
             List<String> warnedNames = new ArrayList<>();
+            List<String> stockAlerts = new ArrayList<>();
 
             for (String idStr : ids) {
                 int medId = Integer.parseInt(idStr);
@@ -143,12 +142,17 @@ public class LineWebhookController {
                 } else {
                     jdbc.update("INSERT INTO intake_logs (medication_id) VALUES (?)", medId);
                     recordedNames.add(displayName);
+                    String stockNotice = decrementStockAndGetAlert(medId);
+                    if (stockNotice != null) stockAlerts.add(stockNotice);
                 }
             }
 
             StringBuilder reply = new StringBuilder();
             if (!recordedNames.isEmpty()) {
                 reply.append("偉い！！🎉 全部まとめてしっかり飲めてナイス！👏\n（").append(String.join("・", recordedNames)).append("）の記録をつけたよ！\n");
+            }
+            if (!stockAlerts.isEmpty()) {
+                reply.append("\n").append(String.join("\n", stockAlerts)).append("\n");
             }
             if (!warnedNames.isEmpty()) {
                 reply.append("\n⚠️ 以下の薬はさっき（2時間以内）も記録があったよ：\n（").append(String.join("・", warnedNames)).append("）");
@@ -157,13 +161,9 @@ public class LineWebhookController {
         }
     }
 
-    /**
-     * 同意処理（DB更新 ＆ 完了メッセージ送信）
-     */
     private void handleAgreePrivacy(String replyToken, String lineUserId) {
         ensureUserExists(lineUserId);
 
-        // 同意フラグを true に更新
         String updateSql = "UPDATE users SET agreed_privacy = true, agreed_at = CURRENT_TIMESTAMP WHERE line_user_id = ?";
         jdbc.update(updateSql, lineUserId);
 
@@ -204,10 +204,12 @@ public class LineWebhookController {
 
     private void processSingleIntake(String replyToken, int medId, String allIdsStr) {
         String displayName = getDisplayName(medId);
-
         boolean isDuplicate = isTakenRecently(medId);
+
+        String stockNotice = null;
         if (!isDuplicate) {
             jdbc.update("INSERT INTO intake_logs (medication_id) VALUES (?)", medId);
+            stockNotice = decrementStockAndGetAlert(medId);
         }
 
         String baseText;
@@ -217,6 +219,9 @@ public class LineWebhookController {
         } else {
             int idx = ThreadLocalRandom.current().nextInt(SUCCESS_MESSAGES.size());
             baseText = String.format(SUCCESS_MESSAGES.get(idx), displayName);
+            if (stockNotice != null) {
+                baseText += "\n\n" + stockNotice;
+            }
         }
 
         List<String> remainIdList = new ArrayList<>();
@@ -263,19 +268,109 @@ public class LineWebhookController {
         }
     }
 
-    private void handleTextIntake(String replyToken, String lineUserId) {
-        String getMedIdSql = """
-            SELECT m.id FROM medications m
+    private void handleTextIntake(String replyToken, String lineUserId, String text) {
+        // ユーザーのお薬一覧を取得（テキスト内に薬名が含まれていればそれを優先）
+        String sql = """
+            SELECT m.id, m.name FROM medications m
             JOIN users u ON m.user_id = u.id
             WHERE u.line_user_id = ? AND m.is_active = true
-            ORDER BY m.id DESC LIMIT 1
+            ORDER BY m.id DESC
         """;
-        List<Integer> medIds = jdbc.queryForList(getMedIdSql, Integer.class, lineUserId);
-        if (medIds.isEmpty()) {
+        List<Map<String, Object>> meds = jdbc.queryForList(sql, lineUserId);
+        if (meds.isEmpty()) {
             reply(replyToken, "お薬が登録されていないみたいだよ！まずはリッチメニューから登録してね💊", null);
             return;
         }
-        processSingleIntake(replyToken, medIds.get(0), null);
+
+        Integer targetMedId = null;
+        for (Map<String, Object> m : meds) {
+            String medName = (String) m.get("name");
+            if (text.contains(medName)) {
+                targetMedId = (Integer) m.get("id");
+                break;
+            }
+        }
+        if (targetMedId == null) {
+            targetMedId = (Integer) meds.get(0).get("id");
+        }
+
+        processSingleIntake(replyToken, targetMedId, null);
+    }
+
+    // ★ 残数確認コマンドの処理
+    private void handleStockInquiry(String replyToken, String lineUserId) {
+        String sql = """
+            SELECT m.name, COALESCE(m.show_name, true) AS show_name,
+                   COALESCE(m.stock_quantity, 0) AS stock_quantity,
+                   COALESCE(m.low_stock_alert, 5) AS low_stock_alert,
+                   COALESCE(m.is_as_needed, false) AS is_as_needed
+            FROM medications m
+            JOIN users u ON m.user_id = u.id
+            WHERE u.line_user_id = ? AND m.is_active = true
+            ORDER BY m.is_as_needed ASC, m.notify_time ASC
+        """;
+        List<Map<String, Object>> meds = jdbc.queryForList(sql, lineUserId);
+        if (meds.isEmpty()) {
+            reply(replyToken, "現在登録されているお薬はありません💊\n下のメニューから登録してね！", null);
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder("📋 現在のお薬の残数一覧だよ！\n━━━━━━━━━━━━━━\n");
+        boolean hasLowStock = false;
+        for (Map<String, Object> m : meds) {
+            boolean showName = (Boolean) m.get("show_name");
+            String name = showName ? (String) m.get("name") : "お薬";
+            int stock = ((Number) m.get("stock_quantity")).intValue();
+            int lowAlert = ((Number) m.get("low_stock_alert")).intValue();
+            boolean isAsNeeded = (Boolean) m.get("is_as_needed");
+
+            sb.append("・").append(name);
+            if (isAsNeeded) sb.append(" [頓服]");
+            sb.append(": あと ").append(stock).append(" 錠");
+
+            if (stock <= 0) {
+                sb.append(" ❌【在庫なし】");
+                hasLowStock = true;
+            } else if (stock <= lowAlert) {
+                sb.append(" ⚠️【残少】");
+                hasLowStock = true;
+            }
+            sb.append("\n");
+        }
+        sb.append("━━━━━━━━━━━━━━");
+        if (hasLowStock) {
+            sb.append("\n⚠️ 残りわずかのお薬があるよ！受診やお薬の準備を忘れないでね🏥");
+        }
+        reply(replyToken, sb.toString().trim(), null);
+    }
+
+    // ★ 残数を減らして通知文を生成
+    private String decrementStockAndGetAlert(int medId) {
+        try {
+            jdbc.update(
+                "UPDATE medications SET stock_quantity = GREATEST(0, stock_quantity - COALESCE(decrement_amount, 1)) WHERE id = ?",
+                medId
+            );
+            Map<String, Object> m = jdbc.queryForMap(
+                "SELECT name, COALESCE(show_name, true) AS show_name, stock_quantity, low_stock_alert FROM medications WHERE id = ?",
+                medId
+            );
+            boolean showName = (Boolean) m.get("show_name");
+            String name = showName ? (String) m.get("name") : "お薬";
+            int stock = ((Number) m.get("stock_quantity")).intValue();
+            int lowAlert = ((Number) m.get("low_stock_alert")).intValue();
+
+            if (stock <= 0) {
+                return String.format("⚠️️ 「%s」の残りが【0錠】になったよ！お薬を補充してね！", name);
+            } else if (stock <= lowAlert) {
+                return String.format("⚠️ 「%s」が残り【あと%d錠】だよ！そろそろ病院や薬局へ行こう🏥", name, stock);
+            } else {
+                return String.format("📦 「%s」の残りは【あと%d錠】だよ！", name, stock);
+            }
+        } catch (Exception e) {
+            log.error("残数更新エラー: {}", e.getMessage());
+            return null;
+        }
     }
 
     private String getDisplayName(int medId) {

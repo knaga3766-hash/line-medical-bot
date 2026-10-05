@@ -1,14 +1,9 @@
 package jp.co.pillreminder.controller;
 
 import java.sql.Time;
-import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneId;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,15 +27,22 @@ public class MedicationApiController {
         this.jdbc = jdbc;
     }
 
-    // 1. お薬一覧の取得
+    // 1. お薬一覧の取得（残数や頓服フラグも取得）
     @GetMapping
     public List<Map<String, Object>> getMedications(@RequestParam("lineUserId") String lineUserId) {
         String sql = """
-            SELECT m.id, m.name, to_char(m.notify_time, 'HH24:MI') AS notify_time, m.dosage, COALESCE(m.show_name, true) AS show_name
+            SELECT m.id, m.name,
+                   to_char(m.notify_time, 'HH24:MI') AS notify_time,
+                   m.dosage,
+                   COALESCE(m.show_name, true) AS show_name,
+                   COALESCE(m.stock_quantity, 0) AS stock_quantity,
+                   COALESCE(m.decrement_amount, 1) AS decrement_amount,
+                   COALESCE(m.is_as_needed, false) AS is_as_needed,
+                   COALESCE(m.low_stock_alert, 5) AS low_stock_alert
             FROM medications m
             JOIN users u ON m.user_id = u.id
             WHERE u.line_user_id = ? AND m.is_active = true
-            ORDER BY m.notify_time ASC
+            ORDER BY m.is_as_needed ASC, m.notify_time ASC
         """;
         return jdbc.queryForList(sql, lineUserId);
     }
@@ -53,9 +55,19 @@ public class MedicationApiController {
         String notifyTimeStr = (String) req.get("notifyTime");
         String dosage = (String) req.getOrDefault("dosage", "1包");
         Boolean showName = req.get("showName") != null ? Boolean.parseBoolean(req.get("showName").toString()) : true;
+        Boolean isAsNeeded = req.get("isAsNeeded") != null ? Boolean.parseBoolean(req.get("isAsNeeded").toString()) : false;
+        
+        int stockQuantity = parseInt(req.get("stockQuantity"), 0);
+        int decrementAmount = parseInt(req.get("decrementAmount"), 1);
+        int lowStockAlert = parseInt(req.get("lowStockAlert"), 5);
 
-        if (lineUserId == null || name == null || notifyTimeStr == null) {
+        if (lineUserId == null || name == null) {
             return ResponseEntity.badRequest().body("必須項目が不足しています");
+        }
+
+        // 頓服で通知時間が指定されていない場合は 00:00 を設定
+        if (notifyTimeStr == null || notifyTimeStr.isBlank()) {
+            notifyTimeStr = "00:00";
         }
 
         jdbc.update("INSERT INTO users (line_user_id) VALUES (?) ON CONFLICT (line_user_id) DO NOTHING", lineUserId);
@@ -63,8 +75,14 @@ public class MedicationApiController {
 
         LocalTime parsedTime = LocalTime.parse(notifyTimeStr);
         jdbc.update(
-            "INSERT INTO medications (user_id, name, notify_time, dosage, show_name) VALUES (?, ?, ?, ?, ?)",
-            userId, name, Time.valueOf(parsedTime), dosage, showName
+            """
+            INSERT INTO medications (
+                user_id, name, notify_time, dosage, show_name,
+                stock_quantity, decrement_amount, is_as_needed, low_stock_alert
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            userId, name, Time.valueOf(parsedTime), dosage, showName,
+            stockQuantity, decrementAmount, isAsNeeded, lowStockAlert
         );
 
         return ResponseEntity.ok("登録成功");
@@ -77,126 +95,69 @@ public class MedicationApiController {
         String notifyTimeStr = (String) req.get("notifyTime");
         String dosage = (String) req.getOrDefault("dosage", "1包");
         Boolean showName = req.get("showName") != null ? Boolean.parseBoolean(req.get("showName").toString()) : true;
+        Boolean isAsNeeded = req.get("isAsNeeded") != null ? Boolean.parseBoolean(req.get("isAsNeeded").toString()) : false;
 
-        if (name == null || notifyTimeStr == null) {
+        int stockQuantity = parseInt(req.get("stockQuantity"), 0);
+        int decrementAmount = parseInt(req.get("decrementAmount"), 1);
+        int lowStockAlert = parseInt(req.get("lowStockAlert"), 5);
+
+        if (name == null) {
             return ResponseEntity.badRequest().body("必須項目が不足しています");
+        }
+
+        if (notifyTimeStr == null || notifyTimeStr.isBlank()) {
+            notifyTimeStr = "00:00";
         }
 
         LocalTime parsedTime = LocalTime.parse(notifyTimeStr);
         jdbc.update(
-            "UPDATE medications SET name = ?, notify_time = ?, dosage = ?, show_name = ? WHERE id = ?",
-            name, Time.valueOf(parsedTime), dosage, showName, id
+            """
+            UPDATE medications SET
+                name = ?, notify_time = ?, dosage = ?, show_name = ?,
+                stock_quantity = ?, decrement_amount = ?, is_as_needed = ?, low_stock_alert = ?
+            WHERE id = ?
+            """,
+            name, Time.valueOf(parsedTime), dosage, showName,
+            stockQuantity, decrementAmount, isAsNeeded, lowStockAlert, id
         );
 
         return ResponseEntity.ok("更新成功");
     }
 
-    // 4. お薬の削除
+    // 4. 頓服・手動用：いま飲んだ（残数を減らして記録）
+    @PostMapping("/{id}/take")
+    public ResponseEntity<Map<String, Object>> takeMedication(@PathVariable("id") Integer id) {
+        // 服薬ログ追加
+        jdbc.update("INSERT INTO intake_logs (medication_id) VALUES (?)", id);
+        
+        // 残数を decrement_amount 分だけ減らす（0未満にはしない）
+        jdbc.update(
+            "UPDATE medications SET stock_quantity = GREATEST(0, stock_quantity - COALESCE(decrement_amount, 1)) WHERE id = ?",
+            id
+        );
+
+        // 更新後の残数を取得
+        Map<String, Object> updated = jdbc.queryForMap(
+            "SELECT name, stock_quantity, low_stock_alert FROM medications WHERE id = ?",
+            id
+        );
+
+        return ResponseEntity.ok(updated);
+    }
+
+    // 5. お薬の削除
     @DeleteMapping("/{id}")
     public ResponseEntity<String> delete(@PathVariable("id") Integer id) {
-        jdbc.update("DELETE FROM medications WHERE id = ?", id);
+        jdbc.update("UPDATE medications SET is_active = false WHERE id = ?", id);
         return ResponseEntity.ok("削除成功");
     }
 
-    // 5. 服薬履歴の取得（日本時間 +9時間 & 名前非表示）（LIMIT 100 に変更して過去の記録もカバー）
-    @GetMapping("/history")
-    public List<Map<String, Object>> getHistory(@RequestParam("lineUserId") String lineUserId) {
-        String sql = """
-            SELECT l.id,
-                   CASE WHEN COALESCE(m.show_name, true) = false THEN 'お薬' ELSE m.name END AS name,
-                   to_char(l.taken_at + INTERVAL '9 hour', 'MM/DD HH24:MI') AS taken_at_str
-            FROM intake_logs l
-            JOIN medications m ON l.medication_id = m.id
-            JOIN users u ON m.user_id = u.id
-            WHERE u.line_user_id = ?
-            ORDER BY l.taken_at DESC
-            LIMIT 100
-        """;
-        return jdbc.queryForList(sql, lineUserId);
-    }
-
-    /**
-     * ★ 新規追加：服薬ログの削除API
-     */
-    @DeleteMapping("/history/{id}")
-    public ResponseEntity<?> deleteHistory(@PathVariable("id") Long id) {
+    private int parseInt(Object val, int defaultVal) {
+        if (val == null) return defaultVal;
         try {
-            jdbc.update("DELETE FROM intake_logs WHERE id = ?", id);
-            return ResponseEntity.ok(Map.of("success", true, "message", "削除しました"));
+            return Integer.parseInt(val.toString().trim());
         } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+            return defaultVal;
         }
     }
-
-    // 6. カレンダー＆ストリーク集計の取得（★新機能！）
-    @GetMapping("/calendar")
-    public Map<String, Object> getCalendarData(@RequestParam("lineUserId") String lineUserId) {
-        String sql = """
-            SELECT DISTINCT to_char(l.taken_at + INTERVAL '9 hour', 'YYYY-MM-DD') AS taken_date
-            FROM intake_logs l
-            JOIN medications m ON l.medication_id = m.id
-            JOIN users u ON m.user_id = u.id
-            WHERE u.line_user_id = ?
-            ORDER BY taken_date DESC
-        """;
-        List<String> dates = jdbc.queryForList(sql, String.class, lineUserId);
-        Set<String> dateSet = new HashSet<>(dates);
-
-        ZoneId jst = ZoneId.of("Asia/Tokyo");
-        LocalDate today = LocalDate.now(jst);
-
-        boolean todayDone = dateSet.contains(today.toString());
-        int streak = 0;
-
-        if (todayDone) {
-            streak = 1;
-            LocalDate check = today.minusDays(1);
-            while (dateSet.contains(check.toString())) {
-                streak++;
-                check = check.minusDays(1);
-            }
-        } else {
-            // 今日はまだだが、昨日まで継続しているか
-            LocalDate check = today.minusDays(1);
-            while (dateSet.contains(check.toString())) {
-                streak++;
-                check = check.minusDays(1);
-            }
-        }
-
-        // 今月の達成日数（日本時間基準）
-        String currentYearMonth = String.format("%04d-%02d", today.getYear(), today.getMonthValue());
-        long monthlyCount = dates.stream()
-            .filter(d -> d.startsWith(currentYearMonth))
-            .count();
-
-        Map<String, Object> res = new HashMap<>();
-        res.put("streak", streak);
-        res.put("todayDone", todayDone);
-        res.put("monthlyTotalDays", monthlyCount);
-        res.put("intakeDates", dates);
-        return res;
-    }
-    /**
-     * 手動で服薬ログを記録するAPI（過去日・押し忘れ救済）
-     */
-    @PostMapping("/manual-intake")
-    public ResponseEntity<?> recordManualIntake(@RequestBody Map<String, Object> body) {
-        try {
-            Integer medId = Integer.parseInt(body.get("medicationId").toString());
-            String takenAt = (String) body.get("takenAt"); // "YYYY-MM-DD HH:mm:ss" 形式
-
-            if (takenAt == null || takenAt.isBlank()) {
-                jdbc.update("INSERT INTO intake_logs (medication_id) VALUES (?)", medId);
-            } else {
-                // ★ 修正：入力された日本時間から9時間引いてUTCとして保存！
-                jdbc.update("INSERT INTO intake_logs (medication_id, taken_at) VALUES (?, ?::timestamp - INTERVAL '9 hour')", medId, takenAt);
-            }
-
-            return ResponseEntity.ok(Map.of("success", true, "message", "記録を追加しました"));
-        } catch (Exception e) {
-            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
-        }
-    }
-    
 }

@@ -131,10 +131,35 @@
             class="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
         </div>
 
-        <div>
+        <div id="notifyTimeContainer">
           <label class="block text-xs font-semibold text-slate-600 mb-1">通知時刻</label>
           <input type="time" id="notifyTime" required
             class="w-full px-3 py-2 text-sm bg-slate-100 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-none">
+        </div>
+
+        <!-- ★ 残数管理 ＆ 頓服設定 -->
+        <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-700 flex items-center gap-1">📦 残数・在庫管理</span>
+            <span class="text-[10px] text-slate-400">飲むと自動で減算</span>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-1">現在の残数</label>
+              <input type="number" id="stockQuantity" min="0" placeholder="例: 14" value="0"
+                class="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-slate-600 mb-1">残少警告（以下）</label>
+              <input type="number" id="lowStockAlert" min="0" placeholder="例: 5" value="5"
+                class="w-full px-3 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none">
+            </div>
+          </div>
+          <div class="flex items-center gap-2 pt-1 border-t border-slate-200/60">
+            <input type="checkbox" id="isAsNeeded"
+              class="w-4 h-4 rounded text-blue-600 border-slate-300 focus:ring-blue-500">
+            <label for="isAsNeeded" class="text-xs text-slate-700 select-none font-medium">⚡️ 頓服薬（定期通知なし・飲んだ時だけ記録）</label>
+          </div>
         </div>
 
         <div>
@@ -477,25 +502,46 @@
           return;
         }
 
-        listEl.innerHTML = currentMedications.map(item => `
-          <div class="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-100">
-            <div>
-              <div class="flex items-center gap-2">
-                <p class="text-sm font-bold text-slate-800">${item.name}</p>
-                ${!item.show_name ? '<span class="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">名前非表示</span>' : ''}
+        listEl.innerHTML = currentMedications.map(item => {
+          const stock = item.stock_quantity ?? 0;
+          const alertLimit = item.low_stock_alert ?? 5;
+          let stockBadge = '';
+          if (stock <= 0) {
+            stockBadge = '<span class="text-[10px] bg-red-100 text-red-700 font-bold px-1.5 py-0.5 rounded">❌ 在庫なし</span>';
+          } else if (stock <= alertLimit) {
+            stockBadge = `<span class="text-[10px] bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded">⚠️️ 残り${stock}</span>`;
+          } else {
+            stockBadge = `<span class="text-[10px] bg-blue-50 text-blue-600 font-semibold px-1.5 py-0.5 rounded">📦 残り${stock}</span>`;
+          }
+          const asNeededBadge = item.is_as_needed ? '<span class="text-[10px] bg-purple-100 text-purple-700 font-bold px-1.5 py-0.5 rounded">⚡️頓服</span>' : '';
+          const timeText = item.is_as_needed ? '⚡️ 必要な時に服用' : `⏰ ${item.notify_time}`;
+
+          return `
+          <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-100 space-y-2.5">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <p class="text-sm font-bold text-slate-800">${item.name}</p>
+                  ${asNeededBadge}
+                  ${stockBadge}
+                  ${!item.show_name ? '<span class="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded">名前非表示</span>' : ''}
+                </div>
+                <p class="text-xs text-slate-500 mt-1">${timeText} ・ ${item.dosage}</p>
               </div>
-              <p class="text-xs text-slate-500 mt-0.5">⏰ ${item.notify_time} ・ ${item.dosage}</p>
+              <button onclick="quickTake(${item.id})" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm active:scale-95 transition flex items-center gap-1 shrink-0">
+                <span>💊</span><span>飲んだ</span>
+              </button>
             </div>
-            <div class="flex items-center gap-1.5">
-              <button onclick="startEdit(${item.id})" class="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2.5 py-1.5 rounded-lg border border-blue-200 hover:bg-blue-50">
+            <div class="flex items-center justify-end gap-2 pt-1.5 border-t border-slate-200/50">
+              <button onclick="startEdit(${item.id})" class="text-xs text-blue-600 hover:text-blue-800 font-semibold px-2 py-1 rounded hover:bg-blue-50">
                 編集
               </button>
-              <button onclick="deleteMed(${item.id})" class="text-xs text-red-500 hover:text-red-700 font-semibold px-2.5 py-1.5 rounded-lg border border-red-200 hover:bg-red-50">
+              <button onclick="deleteMed(${item.id})" class="text-xs text-red-500 hover:text-red-700 font-semibold px-2 py-1 rounded hover:bg-red-50">
                 削除
               </button>
             </div>
           </div>
-        `).join("");
+        `}).join("");
       } catch (e) {
         listEl.innerHTML = '<p class="text-xs text-red-500 text-center py-4">一覧の取得に失敗しました</p>';
       }
@@ -545,6 +591,11 @@
       document.getElementById("notifyTime").value = med.notify_time;
       document.getElementById("dosage").value = med.dosage;
       document.getElementById("showName").checked = (med.show_name !== false);
+      document.getElementById("stockQuantity").value = med.stock_quantity ?? 0;
+      document.getElementById("lowStockAlert").value = med.low_stock_alert ?? 5;
+      const isAsNeededEl = document.getElementById("isAsNeeded");
+      isAsNeededEl.checked = (med.is_as_needed === true);
+      toggleAsNeededUI(isAsNeededEl.checked);
 
       document.getElementById("form-title").innerHTML = "<span>✏️</span> <span>お薬の情報を編集</span>";
       document.getElementById("submit-btn").textContent = "変更を保存する";
@@ -568,6 +619,10 @@
       document.getElementById("med-form").reset();
       document.getElementById("dosage").value = "1包";
       document.getElementById("showName").checked = true;
+      document.getElementById("stockQuantity").value = "0";
+      document.getElementById("lowStockAlert").value = "5";
+      document.getElementById("isAsNeeded").checked = false;
+      toggleAsNeededUI(false);
       document.getElementById("form-title").innerHTML = "<span>➕</span> <span>新しいお薬を登録</span>";
       document.getElementById("submit-btn").textContent = "この内容で登録する";
       document.getElementById("cancel-btn").classList.add("hidden");
@@ -580,12 +635,21 @@
       const btn = document.getElementById("submit-btn");
       btn.disabled = true;
 
+      const isAsNeeded = document.getElementById("isAsNeeded").checked;
+      let notifyTime = document.getElementById("notifyTime").value;
+      if (isAsNeeded && (!notifyTime || notifyTime.trim() === "")) {
+        notifyTime = "00:00";
+      }
+
       const payload = {
         lineUserId: currentUserId,
         name: document.getElementById("name").value,
-        notifyTime: document.getElementById("notifyTime").value,
+        notifyTime: notifyTime,
         dosage: document.getElementById("dosage").value || "1包",
-        showName: document.getElementById("showName").checked
+        showName: document.getElementById("showName").checked,
+        stockQuantity: parseInt(document.getElementById("stockQuantity").value || "0", 10),
+        lowStockAlert: parseInt(document.getElementById("lowStockAlert").value || "5", 10),
+        isAsNeeded: isAsNeeded
       };
 
       try {
@@ -611,6 +675,46 @@
         btn.disabled = false;
       }
     });
+
+    function toggleAsNeededUI(isAsNeeded) {
+      const container = document.getElementById("notifyTimeContainer");
+      const input = document.getElementById("notifyTime");
+      if (container && input) {
+        if (isAsNeeded) {
+          container.classList.add("hidden");
+          input.required = false;
+        } else {
+          container.classList.remove("hidden");
+          input.required = true;
+        }
+      }
+    }
+
+    const asNeededInput = document.getElementById("isAsNeeded");
+    if (asNeededInput) {
+      asNeededInput.addEventListener("change", (e) => toggleAsNeededUI(e.target.checked));
+    }
+
+    async function quickTake(id) {
+      const med = currentMedications.find(m => m.id === id);
+      const name = med ? med.name : "お薬";
+      if (!confirm(`「${name}」を服用しましたか？
+（服薬を記録し、残数を減らします）`)) return;
+
+      try {
+        const res = await fetch(`/api/medications/${id}/take`, { method: "POST" });
+        if (res.ok) {
+          const data = await res.json();
+          alert(`「${data.name}」の服薬を記録したよ！🎉
+現在の残数: 【あと${data.stock_quantity}錠】`);
+          refreshAll();
+        } else {
+          alert("服薬記録の送信に失敗しました");
+        }
+      } catch (e) {
+        alert("通信エラーが発生しました");
+      }
+    }
 
     async function deleteMed(id) {
       if (!confirm("このお薬を削除してもいい？")) return;
