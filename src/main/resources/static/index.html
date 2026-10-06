@@ -74,6 +74,7 @@
 
       <div id="calendar-grid" class="grid grid-cols-7 gap-1"></div>
 
+      <!-- 選択した日の詳細カード -->
       <div id="selected-day-card" class="mt-4 pt-3.5 border-t border-slate-100 hidden">
         <div class="flex items-center justify-between mb-2.5">
           <h3 id="selected-day-title" class="text-xs font-bold text-slate-700 flex items-center gap-1.5">
@@ -112,7 +113,7 @@
       </div>
     </div>
 
-    <!-- お薬フォームカード -->
+    <!-- お薬登録フォームカード -->
     <div id="form-card" class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
       <h2 id="form-title" class="text-sm font-bold text-slate-700 mb-4 flex items-center gap-1.5">
         <span>➕</span> <span>新しいお薬を登録</span>
@@ -140,15 +141,18 @@
   <script>
     let currentUserId = null;
     let currentDate = new Date();
+    let selectedDateStr = null;
+    let userMedicines = [];
+    let monthlyLogs = {};
 
     function prevMonth() {
       currentDate.setMonth(currentDate.getMonth() - 1);
-      renderCalendar();
+      loadMonthlyData();
     }
 
     function nextMonth() {
       currentDate.setMonth(currentDate.getMonth() + 1);
-      renderCalendar();
+      loadMonthlyData();
     }
 
     function toggleManualForm(show) {
@@ -163,30 +167,6 @@
       }
     }
 
-    function renderCalendar() {
-      const year = currentDate.getFullYear();
-      const month = currentDate.getMonth();
-      document.getElementById('calendar-title').textContent = `${year}年 ${month + 1}月`;
-      
-      const grid = document.getElementById('calendar-grid');
-      grid.innerHTML = '';
-
-      const firstDayIndex = new Date(year, month, 1).getDay();
-      const lastDay = new Date(year, month + 1, 0).getDate();
-
-      for (let i = 0; i < firstDayIndex; i++) {
-        const empty = document.createElement('div');
-        grid.appendChild(empty);
-      }
-
-      for (let day = 1; day <= lastDay; day++) {
-        const cell = document.createElement('div');
-        cell.className = 'aspect-square flex items-center justify-center text-xs font-medium rounded-lg bg-slate-50 hover:bg-blue-50 cursor-pointer transition';
-        cell.textContent = day;
-        grid.appendChild(cell);
-      }
-    }
-
     async function initLiff() {
       try {
         await liff.init({ liffId: "2011761175-lcQ9D2JG" });
@@ -198,12 +178,179 @@
           currentUserId = "test_user_debug";
           document.getElementById('status-text').textContent = 'テストモード';
         }
-        renderCalendar();
       } catch (err) {
         console.error('LIFF Initialization failed', err);
-        document.getElementById('status-text').textContent = '認証エラー';
+        document.getElementById('status-text').textContent = 'テストモード(認証エラー)';
         currentUserId = "test_user_debug";
-        renderCalendar();
+      }
+      await loadUserData();
+    }
+
+    async function loadUserData() {
+      if (!currentUserId) return;
+      try {
+        // お薬一覧とストリーク情報の取得
+        const [medRes, streakRes] = await Promise.all([
+          fetch(`/api/medicines?userId=${currentUserId}`),
+          fetch(`/api/streak?userId=${currentUserId}`)
+        ]);
+        
+        if (medRes.ok) {
+          userMedicines = await medRes.json();
+          updateMedSelect();
+        }
+        if (streakRes.ok) {
+          const streakData = await streakRes.json();
+          document.getElementById('streak-count').textContent = streakData.streak || 0;
+          document.getElementById('monthly-count').textContent = streakData.monthlyCount || 0;
+          document.getElementById('streak-message').innerHTML = `<span>🌱</span> ${streakData.message || '今日も自分のペースでいこう！'}`;
+        }
+      } catch (e) {
+        console.error("Data load error", e);
+      }
+      loadMonthlyData();
+    }
+
+    async function loadMonthlyData() {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth() + 1;
+      document.getElementById('calendar-title').textContent = `${year}年 ${month}月`;
+
+      try {
+        const res = await fetch(`/api/logs/month?userId=${currentUserId}&year=${year}&month=${month}`);
+        if (res.ok) {
+          monthlyLogs = await res.json();
+        }
+      } catch (e) {
+        console.error("Monthly logs error", e);
+        monthlyLogs = {};
+      }
+      renderCalendar();
+    }
+
+    function renderCalendar() {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      const grid = document.getElementById('calendar-grid');
+      grid.innerHTML = '';
+
+      const firstDayIndex = new Date(year, month, 1).getDay();
+      const lastDay = new Date(year, month + 1, 0).getDate();
+
+      for (let i = 0; i < firstDayIndex; i++) {
+        const empty = document.createElement('div');
+        grid.appendChild(empty);
+      }
+
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      for (let day = 1; day <= lastDay; day++) {
+        const cell = document.createElement('div');
+        const mStr = String(month + 1).padStart(2, '0');
+        const dStr = String(day).padStart(2, '0');
+        const dateStr = `${year}-${mStr}-${dStr}`;
+
+        cell.className = 'aspect-square flex flex-col items-center justify-center text-xs font-medium rounded-lg bg-slate-50 hover:bg-blue-50 cursor-pointer transition relative';
+        
+        const isLogged = monthlyLogs[dateStr];
+        let bgClass = 'bg-slate-50 text-slate-700';
+        if (dateStr === todayStr) {
+          bgClass = 'border-2 border-blue-500 font-bold text-blue-600';
+        }
+        if (isLogged) {
+          bgClass = 'bg-emerald-500 text-white font-bold';
+        }
+        cell.className += ` ${bgClass}`;
+
+        cell.innerHTML = `<span>${day}</span>`;
+        if (isLogged) {
+          cell.innerHTML += `<span class="text-[9px] mt-0.5">💮</span>`;
+        }
+
+        cell.onclick = () => selectDate(dateStr);
+        grid.appendChild(cell);
+      }
+    }
+
+    function selectDate(dateStr) {
+      selectedDateStr = dateStr;
+      const card = document.getElementById('selected-day-card');
+      card.classList.remove('hidden');
+      document.getElementById('selected-day-title').innerHTML = `<span>📌</span> <span>${dateStr} の記録</span>`;
+      
+      const list = document.getElementById('selected-day-list');
+      const logs = monthlyLogs[dateStr] || [];
+      
+      if (logs.length > 0) {
+        list.innerHTML = logs.map(l => `
+          <div class="flex items-center justify-between bg-slate-50 p-2 rounded-lg text-xs">
+            <span class="font-semibold text-slate-700">${l.medicineName}</span>
+            <span class="text-slate-500">${l.takenTime} 飲用済 ✅</span>
+          </div>
+        `).join('');
+        document.getElementById('selected-day-badge').textContent = '達成済み';
+        document.getElementById('selected-day-badge').className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700';
+      } else {
+        list.innerHTML = `<p class="text-xs text-slate-400 py-1">この日の記録はありません</p>`;
+        document.getElementById('selected-day-badge').textContent = '未記録';
+        document.getElementById('selected-day-badge').className = 'text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500';
+      }
+      toggleManualForm(false);
+    }
+
+    function updateMedSelect() {
+      const select = document.getElementById('manual-med-select');
+      select.innerHTML = userMedicines.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
+    }
+
+    // お薬新規登録
+    document.getElementById('med-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('med-name').value;
+      const time = document.getElementById('med-time').value;
+
+      try {
+        const res = await fetch('/api/medicines', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUserId, name: name, notificationTime: time })
+        });
+        if (res.ok) {
+          alert('お薬を登録しました！');
+          document.getElementById('med-name').value = '';
+          loadUserData();
+        } else {
+          alert('登録に失敗しました');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('通信エラーが発生しました');
+      }
+    });
+
+    // 手動記録保存
+    async function submitManualIntake() {
+      const medId = document.getElementById('manual-med-select').value;
+      const time = document.getElementById('manual-time').value;
+      if (!medId || !selectedDateStr) return;
+
+      try {
+        const res = await fetch('/api/intake/manual', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUserId, medicineId: medId, date: selectedDateStr, takenTime: time })
+        });
+        if (res.ok) {
+          alert('記録を保存しました！');
+          toggleManualForm(false);
+          loadMonthlyData();
+          loadUserData();
+        } else {
+          alert('保存に失敗しました');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('通信エラーが発生しました');
       }
     }
 
