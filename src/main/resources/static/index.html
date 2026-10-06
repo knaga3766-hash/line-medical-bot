@@ -120,4 +120,96 @@
       <form id="med-form" class="space-y-4">
         <div>
           <label class="block text-xs font-semibold text-slate-600 mb-1">お薬の名前</label>
-          <input type="text
+          <input type="text" id="med-name" required placeholder="例: ロキソニン"
+            class="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">通知時間</label>
+          <input type="time" id="med-time" required value="08:00"
+            class="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition">
+        </div>
+        <button type="submit"
+          class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl transition shadow-sm shadow-blue-200">
+          登録する
+        </button>
+      </form>
+    </div>
+
+  </div>
+
+  <script>
+    let currentUserId = null;
+    let currentDate = new Date();
+
+    function prevMonth() {
+      currentDate.setMonth(currentDate.getMonth() - 1);
+      renderCalendar();
+    }
+
+    function nextMonth() {
+      currentDate.setMonth(currentDate.getMonth() + 1);
+      renderCalendar();
+    }
+
+    function toggleManualForm(show) {
+      const container = document.getElementById('manual-form-container');
+      const btn = document.getElementById('open-manual-btn');
+      if (show) {
+        container.classList.remove('hidden');
+        btn.classList.add('hidden');
+      } else {
+        container.classList.add('hidden');
+        btn.classList.remove('hidden');
+      }
+    }
+
+    function renderCalendar() {
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      document.getElementById('calendar-title').textContent = `${year}年 ${month + 1}月`;
+      
+      const grid = document.getElementById('calendar-grid');
+      grid.innerHTML = '';
+
+      const firstDayIndex = new Date(year, month, 1).getDay();
+      const lastDay = new Date(year, month + 1, 0).getDate();
+
+      for (let i = 0; i < firstDayIndex; i++) {
+        const empty = document.createElement('div');
+        grid.appendChild(empty);
+      }
+
+      for (let day = 1; day <= lastDay; day++) {
+        const cell = document.createElement('div');
+        cell.className = 'aspect-square flex items-center justify-center text-xs font-medium rounded-lg bg-slate-50 hover:bg-blue-50 cursor-pointer transition';
+        cell.textContent = day;
+        grid.appendChild(cell);
+      }
+    }
+
+    async function initLiff() {
+      try {
+        await liff.init({ liffId: "2011761175-lcQ9D2JG" });
+        if (liff.isLoggedIn()) {
+          const profile = await liff.getProfile();
+          currentUserId = profile.userId;
+          document.getElementById('status-text').textContent = `ログイン中: ${profile.displayName}`;
+        } else {
+          currentUserId = "test_user_debug";
+          document.getElementById('status-text').textContent = 'テストモード';
+        }
+        renderCalendar();
+      } catch (err) {
+        console.error('LIFF Initialization failed', err);
+        document.getElementById('status-text').textContent = '認証エラー';
+        currentUserId = "test_user_debug";
+        renderCalendar();
+      }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      initLiff();
+    });
+  </script>
+</body>
+</html>
