@@ -41,13 +41,6 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- LINE Messaging API Client (Java公式) -->
-        <dependency>
-            <groupId>com.linecorp.bot</groupId>
-            <artifactId>line-bot-messaging-client</artifactId>
-            <version>8.3.0</version>
-        </dependency>
-
         <!-- Spring Boot Test (テスト用) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
