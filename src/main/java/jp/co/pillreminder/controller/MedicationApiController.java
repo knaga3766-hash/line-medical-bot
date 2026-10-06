@@ -4,6 +4,8 @@ import jp.co.pillreminder.model.Medicine; // ※必要に応じてモデルや�
 import jp.co.pillreminder.model.IntakeLog;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import jp.co.pillreminder.model.Medicine;
+import jp.co.pillreminder.model.IntakeLog;
 
 import java.util.HashMap;
 import java.util.List;
